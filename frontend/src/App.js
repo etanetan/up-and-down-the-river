@@ -71,33 +71,38 @@ const sortHand = (hand) => {
 	});
 };
 
-// Component to display players around the table (inside the oval).
+/* 
+  Revised TablePlayers:
+  - We compute a rotation offset so that the current player (identified by currentPlayerId)
+    ends up at 270° (bottom center).
+  - Then, for each player (using the order in the original players array),
+    we compute angle = (360/n)*i + offset.
+*/
 function TablePlayers({ players, currentRound, currentPlayerId }) {
 	const numPlayers = players.length;
-	// Force the current player to be at index 0 so that they appear at the bottom (angle = 270°).
+	// Determine the index of the current player in the players array.
 	const currentIndex = players.findIndex((p) => p.id === currentPlayerId);
-	const orderedPlayers = [
-		players[currentIndex],
-		...players.slice(0, currentIndex),
-		...players.slice(currentIndex + 1),
-	];
-
-	// Increase radii so players appear further from the table.
-	const radiusX = 150; // horizontal radius in pixels
-	const radiusY = 100; // vertical radius in pixels
-
+	// Compute rotation offset so that current player's angle becomes 270°.
+	const offset = 90 - (360 / numPlayers) * currentIndex;
+	// Map each player to an angle.
+	const playersWithAngle = players.map((player, i) => {
+		const angle = (360 / numPlayers) * i + offset;
+		return { ...player, angle };
+	});
 	return (
 		<div className="table-players">
-			{orderedPlayers.map((player, index) => {
-				// For the current player (index 0) force angle = 270°.
-				const angleDeg = index === 0 ? 270 : 270 + (360 / numPlayers) * index;
-				const angleRad = (angleDeg * Math.PI) / 180;
+			{playersWithAngle.map((player) => {
+				// Convert the angle to radians.
+				const angleRad = (player.angle * Math.PI) / 180;
+				// Increase radii so players are further from the table.
+				const radiusX = 180; // horizontal radius in pixels
+				const radiusY = 140; // vertical radius in pixels
 				const x = radiusX * Math.cos(angleRad);
 				const y = radiusY * Math.sin(angleRad);
 				// Convert coordinates to percentages relative to the table oval container.
-				const left = 50 + (x / 300) * 100;
-				const top = 50 + (y / 200) * 100;
-				// If a player has not bid, show (-)
+				const left = 50 + (x / 400) * 100; // adjust as needed
+				const top = 50 + (y / 300) * 100; // adjust as needed
+				// If a player has not bid, show "(-)"
 				const bid =
 					currentRound &&
 					currentRound.bids &&
@@ -168,7 +173,7 @@ function Scoreboard({ gameState }) {
 								})}
 							</tr>
 						))}
-					{gameState.currentRound && (
+					{gameState.currentRound && gameState.state !== 'finished' && (
 						<tr className="pending-round">
 							<td>{gameState.currentRound.totalCards}</td>
 							{gameState.players.map((player) => {
@@ -202,8 +207,7 @@ function Scoreboard({ gameState }) {
 
 function App() {
 	// Views: "home", "join", "lobby", "game"
-	// When the game is finished, we still show the scoreboard on the side,
-	// but a game-over summary appears at the top.
+	// When the game is finished, a game-over overlay appears.
 	const [view, setView] = useState('home');
 	const [gameId, setGameId] = useState('');
 	const [playerId, setPlayerId] = useState('');
@@ -214,6 +218,7 @@ function App() {
 	const [selectedCard, setSelectedCard] = useState(null);
 	const [lastTrick, setLastTrick] = useState(null);
 	const [actionMessage, setActionMessage] = useState('');
+	const [gameOver, setGameOver] = useState(false);
 
 	useEffect(() => {
 		const urlParams = new URLSearchParams(window.location.search);
@@ -287,9 +292,9 @@ function App() {
 			return;
 		}
 		const data = await response.json();
-		// If game is finished, update state (scoreboard remains on side, summary appears at top)
 		if (data.state === 'finished') {
 			setGameState(data);
+			setGameOver(true);
 		} else {
 			if (
 				data.currentRound &&
@@ -470,11 +475,17 @@ function App() {
 									))}
 							</tbody>
 						</table>
+						<button
+							className="play-again-button"
+							onClick={() => window.location.reload()}
+						>
+							Play Again
+						</button>
 					</div>
 				)}
 				<div className="top-section">
 					<div className="action-message">
-						<p>{actionMessage}</p>
+						<p>{gameState.state === 'finished' ? '' : actionMessage}</p>
 					</div>
 				</div>
 				{/* Centered oval table with played cards and players inside */}
@@ -501,27 +512,29 @@ function App() {
 						</div>
 					)}
 				</div>
-				{gameState.state === 'bidding' && (
-					<div className="bid-selector">
-						<h4>Bidding</h4>
-						<input
-							type="number"
-							value={bid}
-							onChange={(e) => setBid(e.target.value)}
-							placeholder="Your bid"
-							disabled={gameState.state !== 'bidding'}
-						/>
-						<button onClick={placeBid} disabled={!isMyTurnToBid()}>
-							Place Bid
-						</button>
-					</div>
-				)}
+				{gameState.state === 'bidding' &&
+					!gameState.currentRound.bids[playerId] && (
+						<div className="bid-selector">
+							<h4>Bidding</h4>
+							<input
+								type="number"
+								value={bid}
+								onChange={(e) => setBid(e.target.value)}
+								placeholder="Your bid"
+								disabled={gameState.state !== 'bidding'}
+							/>
+							<button onClick={placeBid} disabled={!isMyTurnToBid()}>
+								Place Bid
+							</button>
+						</div>
+					)}
 				{me && me.hand && (
 					<div className="hand-container">{sortedHand.map(renderHandCard)}</div>
 				)}
 				{selectedCard && (
 					<div className="play-card-section">
 						<button
+							className="play-card-button"
 							onClick={playSelectedCard}
 							disabled={
 								!(
@@ -554,7 +567,7 @@ function App() {
 								)
 							}
 						>
-							PLAY SELECTED CARD
+							Play Card
 						</button>
 					</div>
 				)}

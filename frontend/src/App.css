@@ -218,6 +218,7 @@ input[type='number'] {
 	margin: 20px auto;
 	width: 80%;
 	height: 300px;
+	/* Removed any border or box shadow */
 }
 .table-oval {
 	position: relative;
@@ -276,11 +277,16 @@ input[type='number'] {
 	margin-bottom: 20px;
 }
 
-/* Game over summary styling (shown at top if game is finished) */
+/* Game over summary styling (overlay) */
 .game-over-summary {
 	background: rgba(0, 0, 0, 0.7);
 	padding: 20px;
 	margin-bottom: 20px;
+	position: absolute;
+	top: 0;
+	left: 0;
+	width: 100%;
+	z-index: 200;
 }
 .game-over-summary h1,
 .game-over-summary h2 {
@@ -296,4 +302,19 @@ input[type='number'] {
 	border: none;
 	padding: 8px 12px;
 	color: white;
+}
+
+/* Play Card button styling */
+.play-card-button {
+	background: #0b6623;
+	color: white;
+	padding: 8px 16px;
+	font-size: 14px;
+	border: none;
+	border-radius: 4px;
+	box-shadow: 0 0 5px rgba(0, 0, 0, 0.3);
+	cursor: pointer;
+}
+.play-card-button:hover {
+	background: #09502b;
 }
