@@ -324,8 +324,6 @@ function App() {
 		updateTurnMessages(data);
 	};
 
-	// UPDATED TURN MESSAGES:
-	// Each client now only shows a message when it's that client’s turn.
 	const updateTurnMessages = (data) => {
 		if (!data || !data.currentRound) {
 			setActionMessage('');
@@ -337,20 +335,33 @@ function App() {
 			if (currentBidderId === playerId) {
 				setActionMessage('YOUR TURN to bid');
 			} else {
+				// Even when it's not your turn, show the waiting message on every client.
 				const currentBidder = data.players.find(
 					(p) => p.id === currentBidderId
 				);
-				setActionMessage(`Waiting for ${currentBidder.displayName} to bid`);
+				if (currentBidder) {
+					setActionMessage(`Waiting for ${currentBidder.displayName} to bid`);
+				} else {
+					setActionMessage('');
+				}
 			}
 		} else if (data.state === 'playing') {
 			const round = data.currentRound;
+			// Calculate the current player whose turn it is to play a card.
 			if (round.currentTrick.plays.length < data.players.length) {
 				const currentPlayerIndex =
 					(round.trickLeader + round.trickTurnIndex) % data.players.length;
-				if (data.players[currentPlayerIndex].id === playerId) {
+				const currentPlayer = data.players[currentPlayerIndex];
+				console.log(
+					'Playing phase:',
+					'currentPlayer.id =',
+					currentPlayer.id,
+					'local playerId =',
+					playerId
+				);
+				if (currentPlayer.id === playerId) {
 					setActionMessage('YOUR TURN to play a card');
 				} else {
-					const currentPlayer = data.players[currentPlayerIndex];
 					setActionMessage(
 						`Waiting for ${currentPlayer.displayName} to play a card`
 					);
