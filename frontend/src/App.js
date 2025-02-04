@@ -220,8 +220,9 @@ function App() {
 	const [gameOver, setGameOver] = useState(false);
 
 	useEffect(() => {
-		const urlParams = new URLSearchParams(window.location.search);
-		const gameIdFromUrl = urlParams.get('gameId');
+		// Get the pathname and remove any leading slash.
+		const path = window.location.pathname;
+		const gameIdFromUrl = path.length > 1 ? path.substring(1) : null;
 		if (gameIdFromUrl) {
 			setGameId(gameIdFromUrl);
 			setView('join');
@@ -636,7 +637,7 @@ function App() {
 				<p>
 					Share this link with friends:
 					<br />
-					{window.location.origin + '/?gameId=' + gameId}
+					{window.location.origin + '/' + gameId}
 				</p>
 				<div className="lobby-players">
 					<h4>Players in Lobby:</h4>
