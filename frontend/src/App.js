@@ -72,13 +72,10 @@ const sortHand = (hand) => {
 };
 
 /* 
-  Revised TablePlayers:
-  - We compute a rotation offset so that the current player (identified by currentPlayerId)
-    ends up at 90° (bottom).
-  - Then, for each player (using the order in the original players array),
-    we compute angle = (360/n)*i + offset.
-  - Also, we increased the horizontal and vertical radii (radiusX and radiusY)
-    so that the players’ names appear further away from the table.
+  TablePlayers:
+  - Computes a rotation offset so that the current player (identified by currentPlayerId)
+    appears at the bottom (90°).
+  - The radii have been increased so that players’ names appear further from the table.
 */
 function TablePlayers({ players, currentRound, currentPlayerId }) {
 	const numPlayers = players.length;
@@ -97,13 +94,13 @@ function TablePlayers({ players, currentRound, currentPlayerId }) {
 				// Convert the angle to radians.
 				const angleRad = (player.angle * Math.PI) / 180;
 				// Increase radii so players are further from the table.
-				const radiusX = 220; // horizontal radius in pixels (increased)
-				const radiusY = 160; // vertical radius in pixels (increased)
+				const radiusX = 220; // horizontal radius (increased)
+				const radiusY = 160; // vertical radius (increased)
 				const x = radiusX * Math.cos(angleRad);
 				const y = radiusY * Math.sin(angleRad);
 				// Convert coordinates to percentages relative to the table oval container.
-				const left = 50 + (x / 400) * 100; // adjust as needed
-				const top = 50 + (y / 300) * 100; // adjust as needed
+				const left = 50 + (x / 400) * 100;
+				const top = 50 + (y / 300) * 100;
 				// If a player has not bid, show "(-)"
 				const bid =
 					currentRound &&
@@ -273,7 +270,7 @@ function App() {
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ gameId, playerId, bid: parseInt(bid, 10) }),
 		});
-		// Clear the bid so the bid selector disappears for you
+		// Clear the bid so the bid selector disappears for you immediately
 		setBid(0);
 		fetchGameState();
 	};
@@ -327,51 +324,54 @@ function App() {
 		updateTurnMessages(data);
 	};
 
+	// UPDATED TURN MESSAGES:
+	// Each client now only shows a message when it's that client’s turn.
 	const updateTurnMessages = (data) => {
 		if (!data || !data.currentRound) {
 			setActionMessage('');
 			return;
 		}
-		if (data.trickOverMessage) {
-			setActionMessage(data.trickOverMessage);
-			return;
-		}
 		if (data.state === 'bidding') {
 			const round = data.currentRound;
 			const currentBidderId = round.bidOrder[round.currentBidTurn];
-			const currentBidder = data.players.find((p) => p.id === currentBidderId);
 			if (currentBidderId === playerId) {
 				setActionMessage('YOUR TURN to bid');
 			} else {
+				const currentBidder = data.players.find(
+					(p) => p.id === currentBidderId
+				);
 				setActionMessage(`Waiting for ${currentBidder.displayName} to bid`);
 			}
 		} else if (data.state === 'playing') {
 			const round = data.currentRound;
-			if (
-				round.currentTrick.plays.length === data.players.length &&
-				round.currentTrick.winnerID
-			) {
-				const winner = data.players.find(
-					(p) => p.id === round.currentTrick.winnerID
-				);
-				setActionMessage(`${winner.displayName} won the trick!`);
-			} else {
+			if (round.currentTrick.plays.length < data.players.length) {
 				const currentPlayerIndex =
 					(round.trickLeader + round.trickTurnIndex) % data.players.length;
-				const currentPlayer = data.players[currentPlayerIndex];
-				if (currentPlayer.id === playerId) {
+				if (data.players[currentPlayerIndex].id === playerId) {
 					setActionMessage('YOUR TURN to play a card');
 				} else {
+					const currentPlayer = data.players[currentPlayerIndex];
 					setActionMessage(
 						`Waiting for ${currentPlayer.displayName} to play a card`
 					);
 				}
+			} else {
+				setActionMessage('');
 			}
+		} else {
+			setActionMessage('');
 		}
 	};
 
-	// Reset game state without reloading the page.
-	const resetGame = () => {
+	// Reset game state by calling the backend reset endpoint,
+	// then resetting local state so it’s as if the game was just created.
+	const resetGame = async () => {
+		await fetch(`${API_URL}/games/reset`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ gameId }),
+		});
+		// Reset local state
 		setView('home');
 		setGameId('');
 		setPlayerId('');
@@ -465,7 +465,6 @@ function App() {
 		if (!gameState) return <div>Loading game state...</div>;
 		const me = gameState.players.find((p) => p.id === playerId);
 		const round = gameState.currentRound;
-		const dealer = round ? gameState.players[round.dealerIndex] : null;
 		const sortedHand = me && me.hand ? sortHand(me.hand) : [];
 		return (
 			<div className="game-board">
@@ -543,7 +542,7 @@ function App() {
 							</button>
 						</div>
 					)}
-				{/* Move Play Card section above the hand container */}
+				{/* Play Card section moved above the hand container */}
 				{selectedCard && (
 					<div className="play-card-section">
 						<button

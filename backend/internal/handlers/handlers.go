@@ -517,3 +517,39 @@ func GetGameStateHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(g)
 }
+
+func ResetGameHandler(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		GameID string `json:"gameId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	game.GamesMu.Lock()
+	defer game.GamesMu.Unlock()
+	g, ok := game.Games[req.GameID]
+	if !ok {
+		http.Error(w, "game not found", http.StatusNotFound)
+		return
+	}
+	// Reset game state: go back to lobby, clear current round and round results,
+	// reset players' scores, hands, tricks, bids, and missed bid counts.
+	g.State = "lobby"
+	g.CurrentRound = nil
+	g.RoundResults = []game.RoundResult{}
+	g.RoundSequence = nil
+	g.CurrentRoundIndex = 0
+	for _, p := range g.Players {
+		p.Hand = []game.Card{}
+		p.Score = 0
+		p.TricksWon = 0
+		p.CurrentBid = 0
+		p.MissedBids = 0
+	}
+	resp := map[string]string{
+		"message": "Game reset. Back to lobby.",
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
