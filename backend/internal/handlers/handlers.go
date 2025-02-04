@@ -13,6 +13,18 @@ import (
 	"github.com/google/uuid"
 )
 
+const letterBytes = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+func generateGameID() string {
+	rand.Seed(time.Now().UnixNano())
+	letters := make([]byte, 3)
+	for i := range letters {
+		letters[i] = letterBytes[rand.Intn(len(letterBytes))]
+	}
+	numbers := rand.Intn(1000) // 0-999
+	return string(letters) + fmt.Sprintf("%03d", numbers)
+}
+
 // CreateGameHandler creates a new game and adds the creator.
 func CreateGameHandler(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -27,7 +39,9 @@ func CreateGameHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "displayName is required", http.StatusBadRequest)
 		return
 	}
-	gameID := uuid.New().String()
+	//gameID := uuid.New().String()
+	gameID := generateGameID()
+
 	creator := &game.Player{
 		ID:          uuid.New().String(),
 		DisplayName: req.DisplayName,
@@ -453,6 +467,22 @@ func PlayHandler(w http.ResponseWriter, r *http.Request) {
 					g.State = "bidding"
 				} else {
 					g.State = "finished"
+					time.Sleep(2000 * time.Millisecond)
+					// Optionally, attach extra info (you might add a field like FinishedAt, or compute missed bid counts)
+					for _, p := range g.Players {
+						missedRounds := 0
+						for _, roundResult := range g.RoundResults {
+								// Assuming roundResult.Results contains each player's result for that round.
+								for _, res := range roundResult.Results {
+										if res.PlayerID == p.ID && res.TricksWon != res.Bid {
+												missedRounds++
+										}
+								}
+						}
+						// You could, for example, add this info to the Player struct or in a separate field.
+						// For this example, assume you extend Player with a MissedBids field.
+						p.MissedBids = missedRounds
+					}
 				}
 			}
 		}()

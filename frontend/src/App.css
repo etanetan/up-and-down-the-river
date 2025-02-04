@@ -1,43 +1,45 @@
+/* Entire screen uses a poker felt green background */
+body {
+	background-color: #0b6623;
+	margin: 0;
+	padding: 0;
+}
+
 /* General layout */
 .App {
 	font-family: Arial, sans-serif;
 	text-align: center;
 	position: relative;
 	min-height: 100vh;
+	color: #fff;
 }
 
-/* Scoreboard container on the left-hand side */
+/* Scoreboard container */
 .scoreboard-container {
 	position: fixed;
 	left: 0;
 	top: 0;
 	width: 250px;
 	height: 100%;
-	background-color: #f1f1f1;
+	background-color: rgba(255, 255, 255, 0.9);
+	color: #000;
 	overflow-y: auto;
 	padding: 10px;
-	box-shadow: 2px 0 5px rgba(0, 0, 0, 0.1);
+	box-shadow: 2px 0 5px rgba(0, 0, 0, 0.3);
 	z-index: 100;
 }
 
-/* Main content area with left margin */
+/* Main content area */
 .main-content {
 	margin-left: 260px;
 	padding: 20px;
+	/* No additional border for a cleaner look */
 }
 
-/* Scoreboard styles */
+/* Scoreboard styles (header kept simple) */
 .scoreboard h3 {
 	margin: 10px 0;
-}
-.total-scores {
-	display: flex;
-	flex-direction: column;
-	align-items: flex-start;
-	margin-bottom: 10px;
-}
-.score-item {
-	margin-bottom: 5px;
+	color: #000;
 }
 .round-table {
 	width: 100%;
@@ -45,10 +47,10 @@
 }
 .round-table th,
 .round-table td {
-	border: 1px solid #ccc;
 	padding: 4px;
 	text-align: center;
 	font-size: 14px;
+	color: #000;
 }
 .total-row {
 	font-weight: bold;
@@ -57,6 +59,18 @@
 .pending-round {
 	font-style: italic;
 	background-color: #fafafa;
+}
+
+/* Additional scoreboard elements */
+.player-bid {
+	font-size: 12px;
+	font-style: italic;
+	color: #fff;
+}
+.dealer-label {
+	font-size: 10px;
+	color: #d00;
+	font-weight: bold;
 }
 
 /* Button and input styling */
@@ -83,29 +97,33 @@ input[type='number'] {
 	font-weight: bold;
 }
 
-/* Bid selector floating panel (bottom right above hand) */
+/* Bid selector floating panel */
 .bid-selector {
 	position: fixed;
 	bottom: 120px;
 	right: 20px;
-	background: #fff;
+	background: #0b6623;
+	color: white;
 	padding: 10px;
 	box-shadow: 0 0 10px rgba(0, 0, 0, 0.3);
 	border-radius: 8px;
 	z-index: 150;
 }
 
-/* Hand container at bottom */
+/* Hand container styling: fixed size, light brown background */
 .hand-container {
 	position: fixed;
 	bottom: 0;
 	left: 260px;
 	right: 0;
-	background: #f9f9f9;
-	padding: 10px 0;
+	background: #006400;
+	color: #000;
+	padding: 10px;
+	height: 130px; /* fixed height */
 	display: flex;
 	justify-content: center;
-	box-shadow: 0 -2px 5px rgba(0, 0, 0, 0.2);
+	align-items: center;
+	box-shadow: 0 -2px 5px rgba(0, 0, 0, 0.3);
 	overflow-x: auto;
 }
 
@@ -132,25 +150,26 @@ input[type='number'] {
 }
 .hand-card:hover {
 	transform: scale(1.05);
-	box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
+	box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
 }
 .hand-card.selected {
-	background-color: whitesmoke;
+	background-color: rgb(200, 200, 200);
 }
 
-/* Main content top section */
+/* Top section styling */
 .top-section {
 	margin-bottom: 20px;
 }
 
-/* Dealer info */
+/* Dealer info styling */
 .dealer-info {
 	margin: 10px 0;
 	font-size: 18px;
 	font-weight: bold;
+	color: #fff;
 }
 
-/* Players info */
+/* Players info styling */
 .players-info {
 	margin: 10px 0;
 }
@@ -182,6 +201,7 @@ input[type='number'] {
 	width: 70px;
 	background-color: #fff;
 	transition: background-color 0.3s ease;
+	color: #000;
 }
 .played-card .played-card-player {
 	font-size: 12px;
@@ -192,12 +212,88 @@ input[type='number'] {
 	background-color: #fffae6;
 }
 
+/* Oval table styling */
+.table-container {
+	position: relative;
+	margin: 20px auto;
+	width: 80%;
+	height: 300px;
+}
+.table-oval {
+	position: relative;
+	margin: 15% auto;
+	width: 80%;
+	height: 100%;
+	background: #006400;
+	border-radius: 50%;
+	box-shadow: inset 0 0 15px rgba(0, 0, 0, 0.6);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	color: #000;
+	overflow: visible;
+}
+
+/* Table players positioning inside the oval */
+.table-players {
+	position: absolute;
+	width: 100%;
+	height: 100%;
+	top: 0;
+	left: 0;
+}
+.table-player {
+	position: absolute;
+	transform: translate(-50%, -50%);
+	text-align: center;
+	white-space: nowrap;
+}
+.table-player .table-player-info {
+	font-size: 18px;
+	color: #fff;
+}
+.table-player .table-player-bid {
+	font-style: italic;
+	color: #fff;
+}
+
+/* Dealer chip styling (larger) */
+.dealer-chip {
+	margin-top: 4px;
+	background: gold;
+	color: black;
+	border-radius: 50%;
+	width: 40px;
+	height: 40px;
+	line-height: 40px;
+	font-size: 20px;
+	font-weight: bold;
+	margin: 0 auto;
+}
+
 /* Game controls styling */
 .game-controls {
 	margin-bottom: 20px;
 }
 
-/* Additional spacing for current trick heading */
-.current-trick h4 {
-	margin-bottom: 10px;
+/* Game over summary styling (shown at top if game is finished) */
+.game-over-summary {
+	background: rgba(0, 0, 0, 0.7);
+	padding: 20px;
+	margin-bottom: 20px;
+}
+.game-over-summary h1,
+.game-over-summary h2 {
+	margin: 5px;
+}
+.final-score-table {
+	width: 80%;
+	margin: 0 auto;
+	border-collapse: collapse;
+}
+.final-score-table th,
+.final-score-table td {
+	border: none;
+	padding: 8px 12px;
+	color: white;
 }

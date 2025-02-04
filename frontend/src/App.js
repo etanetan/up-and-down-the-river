@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import './App.css';
 
 const API_URL = 'http://localhost:8080'; // Your backend URL
@@ -6,7 +6,6 @@ const API_URL = 'http://localhost:8080'; // Your backend URL
 // Helper function to format a card.
 const formatCard = (card) => {
 	if (card.isJoker) {
-		// Render joker with same style as other cards.
 		return (
 			<span style={{ color: 'black', fontSize: '24px', fontWeight: 'bold' }}>
 				{card.jokerName}
@@ -59,7 +58,7 @@ const formatCard = (card) => {
 	);
 };
 
-// Helper to sort cards by suit (order: diamonds, clubs, hearts, spades) then by rank ascending.
+// Helper to sort cards by suit then by rank ascending.
 const sortHand = (hand) => {
 	const suitOrder = { diamonds: 1, clubs: 2, hearts: 3, spades: 4 };
 	return hand.slice().sort((a, b) => {
@@ -72,7 +71,63 @@ const sortHand = (hand) => {
 	});
 };
 
-// Scoreboard component.
+// Component to display players around the table (inside the oval).
+function TablePlayers({ players, currentRound, currentPlayerId }) {
+	const numPlayers = players.length;
+	// Force the current player to be at index 0 so that they appear at the bottom (angle = 270°).
+	const currentIndex = players.findIndex((p) => p.id === currentPlayerId);
+	const orderedPlayers = [
+		players[currentIndex],
+		...players.slice(0, currentIndex),
+		...players.slice(currentIndex + 1),
+	];
+
+	// Increase radii so players appear further from the table.
+	const radiusX = 150; // horizontal radius in pixels
+	const radiusY = 100; // vertical radius in pixels
+
+	return (
+		<div className="table-players">
+			{orderedPlayers.map((player, index) => {
+				// For the current player (index 0) force angle = 270°.
+				const angleDeg = index === 0 ? 270 : 270 + (360 / numPlayers) * index;
+				const angleRad = (angleDeg * Math.PI) / 180;
+				const x = radiusX * Math.cos(angleRad);
+				const y = radiusY * Math.sin(angleRad);
+				// Convert coordinates to percentages relative to the table oval container.
+				const left = 50 + (x / 300) * 100;
+				const top = 50 + (y / 200) * 100;
+				// If a player has not bid, show (-)
+				const bid =
+					currentRound &&
+					currentRound.bids &&
+					currentRound.bids[player.id] !== undefined
+						? currentRound.bids[player.id]
+						: '-';
+				return (
+					<div
+						key={player.id}
+						className="table-player"
+						style={{ left: `${left}%`, top: `${top}%` }}
+					>
+						<div className="table-player-info">
+							<strong>{player.tricksWon || 0}</strong> {player.displayName}{' '}
+							<span className="table-player-bid">({bid})</span>
+						</div>
+						{currentRound &&
+							currentRound.dealerIndex !== undefined &&
+							players[currentRound.dealerIndex] &&
+							player.id === players[currentRound.dealerIndex].id && (
+								<div className="dealer-chip">D</div>
+							)}
+					</div>
+				);
+			})}
+		</div>
+	);
+}
+
+// Scoreboard component with a simple header.
 function Scoreboard({ gameState }) {
 	if (!gameState) return null;
 	const maxScore = Math.max(...gameState.players.map((p) => p.score));
@@ -113,7 +168,6 @@ function Scoreboard({ gameState }) {
 								})}
 							</tr>
 						))}
-					{/* Pending round row: shows bids (in parentheses) if current round is in progress */}
 					{gameState.currentRound && (
 						<tr className="pending-round">
 							<td>{gameState.currentRound.totalCards}</td>
@@ -121,7 +175,7 @@ function Scoreboard({ gameState }) {
 								const bid = gameState.currentRound.bids[player.id];
 								return (
 									<td key={player.id}>
-										{bid !== undefined ? `(${bid})` : '-'}
+										{bid !== undefined ? `(${bid})` : '(-)'}
 									</td>
 								);
 							})}
@@ -148,6 +202,8 @@ function Scoreboard({ gameState }) {
 
 function App() {
 	// Views: "home", "join", "lobby", "game"
+	// When the game is finished, we still show the scoreboard on the side,
+	// but a game-over summary appears at the top.
 	const [view, setView] = useState('home');
 	const [gameId, setGameId] = useState('');
 	const [playerId, setPlayerId] = useState('');
@@ -156,11 +212,9 @@ function App() {
 	const [gameState, setGameState] = useState(null);
 	const [bid, setBid] = useState(0);
 	const [selectedCard, setSelectedCard] = useState(null);
-	// New state to hold the trick once complete so it remains visible.
 	const [lastTrick, setLastTrick] = useState(null);
 	const [actionMessage, setActionMessage] = useState('');
 
-	// On mount, check for gameId in URL.
 	useEffect(() => {
 		const urlParams = new URLSearchParams(window.location.search);
 		const gameIdFromUrl = urlParams.get('gameId');
@@ -170,7 +224,6 @@ function App() {
 		}
 	}, []);
 
-	// Create a new game.
 	const createGame = async () => {
 		const response = await fetch(`${API_URL}/games/create`, {
 			method: 'POST',
@@ -183,7 +236,6 @@ function App() {
 		setView('lobby');
 	};
 
-	// Join an existing game.
 	const joinGame = async () => {
 		if (!gameId || !displayName) {
 			console.error('Game ID or display name is missing.');
@@ -225,10 +277,8 @@ function App() {
 			body: JSON.stringify({ gameId, playerId, card: selectedCard }),
 		});
 		setSelectedCard(null);
-		// When a trick is complete, hold the display for 2 seconds before fetching new state.
 	};
 
-	// Modified fetchGameState: if current trick is complete, hold it in lastTrick.
 	const fetchGameState = async () => {
 		const response = await fetch(`${API_URL}/games/state?gameId=${gameId}`);
 		if (!response.ok) {
@@ -237,45 +287,44 @@ function App() {
 			return;
 		}
 		const data = await response.json();
-
-		// If there is a current round and the trick is complete, hold it.
-		if (
-			data.currentRound &&
-			data.currentRound.currentTrick &&
-			data.currentRound.currentTrick.plays.length === data.players.length &&
-			data.currentRound.currentTrick.winnerID
-		) {
-			// If we haven't already stored it, store it.
-			if (!lastTrick) {
-				setLastTrick(data.currentRound.currentTrick);
-				// Delay updating game state for 2 seconds.
-				setTimeout(() => {
-					setGameState(data);
-					setLastTrick(null);
-				}, 2000);
-			}
-		} else {
+		// If game is finished, update state (scoreboard remains on side, summary appears at top)
+		if (data.state === 'finished') {
 			setGameState(data);
-		}
-		if (
-			data.state === 'bidding' ||
-			data.state === 'playing' ||
-			data.state === 'scoring' ||
-			data.state === 'finished'
-		) {
-			setView('game');
+		} else {
+			if (
+				data.currentRound &&
+				data.currentRound.currentTrick &&
+				data.currentRound.currentTrick.plays.length === data.players.length &&
+				data.currentRound.currentTrick.winnerID
+			) {
+				if (!lastTrick) {
+					setLastTrick(data.currentRound.currentTrick);
+					setTimeout(() => {
+						setGameState(data);
+						setLastTrick(null);
+					}, 2000);
+				}
+			} else {
+				setGameState(data);
+			}
+			if (
+				data.state === 'bidding' ||
+				data.state === 'playing' ||
+				data.state === 'scoring'
+			) {
+				setView('game');
+			}
 		}
 		updateTurnMessages(data);
 	};
 
-	// Update turn messages based on game state.
 	const updateTurnMessages = (data) => {
 		if (!data || !data.currentRound) {
 			setActionMessage('');
 			return;
 		}
 		if (data.trickOverMessage) {
-			setActionMessage(data.trickOverMessage); // Show "Trick is over"
+			setActionMessage(data.trickOverMessage);
 			return;
 		}
 		if (data.state === 'bidding') {
@@ -289,7 +338,6 @@ function App() {
 			}
 		} else if (data.state === 'playing') {
 			const round = data.currentRound;
-			// If trick complete, show winning message.
 			if (
 				round.currentTrick.plays.length === data.players.length &&
 				round.currentTrick.winnerID
@@ -320,14 +368,13 @@ function App() {
 		return () => clearInterval(interval);
 	}, [gameId]);
 
-	// Helper to check if it's my turn to bid.
 	const isMyTurnToBid = () => {
 		if (!gameState || !gameState.currentRound) return false;
 		const round = gameState.currentRound;
 		return round.bidOrder[round.currentBidTurn] === playerId;
 	};
 
-	// Render a card from the player's hand.
+	// Render a card from the player's hand (clickable only when game state is 'playing').
 	const renderHandCard = (card, index) => {
 		return (
 			<div
@@ -340,16 +387,18 @@ function App() {
 						? 'selected'
 						: ''
 				}`}
-				onClick={() =>
-					setSelectedCard(
-						selectedCard &&
-							selectedCard.isJoker === card.isJoker &&
-							selectedCard.suit === card.suit &&
-							selectedCard.rank === card.rank
-							? null
-							: card
-					)
-				}
+				onClick={() => {
+					if (gameState && gameState.state === 'playing') {
+						setSelectedCard(
+							selectedCard &&
+								selectedCard.isJoker === card.isJoker &&
+								selectedCard.suit === card.suit &&
+								selectedCard.rank === card.rank
+								? null
+								: card
+						);
+					}
+				}}
 			>
 				<div className="card-content">
 					{card.isJoker ? formatCard(card) : formatCard(card)}
@@ -358,8 +407,6 @@ function App() {
 		);
 	};
 
-	// Render the played cards for the current trick.
-	// If lastTrick is held, use that instead.
 	const renderCurrentTrick = (round) => {
 		if (!round || !round.currentTrick) return null;
 		const trickToShow = lastTrick || round.currentTrick;
@@ -391,7 +438,6 @@ function App() {
 		);
 	};
 
-	// Render the main game board.
 	const renderGameBoard = () => {
 		if (!gameState) return <div>Loading game state...</div>;
 		const me = gameState.players.find((p) => p.id === playerId);
@@ -400,31 +446,51 @@ function App() {
 		const sortedHand = me && me.hand ? sortHand(me.hand) : [];
 		return (
 			<div className="game-board">
+				{gameState.state === 'finished' && (
+					<div className="game-over-summary">
+						<h1>GAME OVER</h1>
+						<h2>Final Scores</h2>
+						<table className="final-score-table">
+							<thead>
+								<tr>
+									<th>Player</th>
+									<th>Score</th>
+									<th>Missed Bids</th>
+								</tr>
+							</thead>
+							<tbody>
+								{[...gameState.players]
+									.sort((a, b) => b.score - a.score)
+									.map((p) => (
+										<tr key={p.id}>
+											<td>{p.displayName}</td>
+											<td>{p.score}</td>
+											<td>{p.missedBids || 0}</td>
+										</tr>
+									))}
+							</tbody>
+						</table>
+					</div>
+				)}
 				<div className="top-section">
-					{dealer && (
-						<div className="dealer-info">
-							<strong>Dealer: {dealer.displayName}</strong>
-						</div>
-					)}
-					<div className="players-info">
-						{gameState.players.map((p) => (
-							<div key={p.id} className="player-info">
-								<strong>{p.displayName}</strong> – Tricks Won: {p.tricksWon}
-							</div>
-						))}
-					</div>
-					<div className="current-trick">
-						<h4>Cards played this round:</h4>
-						{round &&
-						round.currentTrick &&
-						round.currentTrick.plays.length > 0 ? (
-							renderCurrentTrick(round)
-						) : (
-							<p>No cards played yet this round.</p>
-						)}
-					</div>
 					<div className="action-message">
 						<p>{actionMessage}</p>
+					</div>
+				</div>
+				{/* Centered oval table with played cards and players inside */}
+				<div className="table-container">
+					<div className="table-oval">
+						{round &&
+							round.currentTrick &&
+							round.currentTrick.plays.length > 0 &&
+							renderCurrentTrick(round)}
+						{round && (
+							<TablePlayers
+								players={gameState.players}
+								currentRound={round}
+								currentPlayerId={playerId}
+							/>
+						)}
 					</div>
 				</div>
 				<div className="game-controls">
@@ -443,7 +509,7 @@ function App() {
 							value={bid}
 							onChange={(e) => setBid(e.target.value)}
 							placeholder="Your bid"
-							disabled={!isMyTurnToBid()}
+							disabled={gameState.state !== 'bidding'}
 						/>
 						<button onClick={placeBid} disabled={!isMyTurnToBid()}>
 							Place Bid
@@ -470,13 +536,12 @@ function App() {
 													(leadSuit === 'spades' && c.isJoker)
 											);
 											if (hasLeadSuit) {
-												if (leadSuit === 'spades') {
-													if (
-														!selectedCard.isJoker &&
-														selectedCard.suit.toLowerCase() !== 'spades'
-													) {
-														return false;
-													}
+												if (
+													leadSuit === 'spades' &&
+													!selectedCard.isJoker &&
+													selectedCard.suit.toLowerCase() !== 'spades'
+												) {
+													return false;
 												} else if (
 													selectedCard.suit.toLowerCase() !== leadSuit
 												) {
