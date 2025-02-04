@@ -58,6 +58,7 @@ type Player struct {
 	TricksWon   int    `json:"tricksWon"`
 	Score       int    `json:"score"`
 	IsBot       bool   `json:"isBot"`
+	MissedBids  int    `json:"missedBids"`
 }
 
 // Play represents one card played in a trick.
