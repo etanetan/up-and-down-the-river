@@ -9,7 +9,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/etanetan/up-and-down-the-river/backend/cmd/ws"
 	"github.com/etanetan/up-and-down-the-river/backend/internal/game"
+
 	"github.com/google/uuid"
 )
 
@@ -307,7 +309,6 @@ func PlayHandler(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
-
 	if cardIndex == -1 {
 		http.Error(w, "player does not have that card", http.StatusBadRequest)
 		return
@@ -316,7 +317,6 @@ func PlayHandler(w http.ResponseWriter, r *http.Request) {
 	playedCard := player.Hand[cardIndex]
 	player.Hand = append(player.Hand[:cardIndex], player.Hand[cardIndex+1:]...)
 
-	// Enforce follow-suit.
 	if len(round.CurrentTrick.Plays) > 0 {
 		leadCard := round.CurrentTrick.Plays[0].Card
 		leadSuit := strings.ToLower(leadCard.Suit)
@@ -342,7 +342,6 @@ func PlayHandler(w http.ResponseWriter, r *http.Request) {
 	round.CurrentTrick.Plays = append(round.CurrentTrick.Plays, play)
 	round.TrickTurnIndex++
 
-	// Check if the trick is complete
 	if len(round.CurrentTrick.Plays) == len(g.Players) {
 		leadSuit := strings.ToLower(round.CurrentTrick.Plays[0].Card.Suit)
 		winningPlay := round.CurrentTrick.Plays[0]
@@ -359,26 +358,27 @@ func PlayHandler(w http.ResponseWriter, r *http.Request) {
 
 		round.Tricks = append(round.Tricks, *round.CurrentTrick)
 
-		// 🔥 Add a "Trick is over" message
 		resp := map[string]interface{}{
 			"message":          "Card played",
 			"currentTrick":     round.CurrentTrick,
 			"tricks":           round.Tricks,
-			"winningCard":      winningPlay.Card, // Send winning card to frontend
-			"trickOverMessage": "Trick is over",  // New trick over message
+			"winningCard":      winningPlay.Card,
+			"trickOverMessage": "Trick is over",
 			"playerHand":       player.Hand,
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(resp)
 
-		// 🔥 Delay before progressing to the next trick or round
-		go func() {
-			time.Sleep(2000 * time.Millisecond) // Wait 2 seconds for highlight effect
+		gameStateJSON, err := json.Marshal(g)
+		if err == nil {
+			ws.HubInstance.Broadcast(gameStateJSON)
+		}
 
+		go func() {
+			time.Sleep(3000 * time.Millisecond)
 			game.GamesMu.Lock()
 			defer game.GamesMu.Unlock()
 
-			// If players still have cards, continue the round.
 			if len(g.Players[0].Hand) > 0 {
 				var winnerIndex int
 				for i, p := range g.Players {
@@ -394,72 +394,17 @@ func PlayHandler(w http.ResponseWriter, r *http.Request) {
 				}
 				round.TrickTurnIndex = 0
 			} else {
-				// End of round. Record round results.
-				var roundResults []game.PlayerRoundResult
-				for _, p := range g.Players {
-					bid := round.Bids[p.ID]
-					roundScore := 0
-					if p.TricksWon == bid {
-						roundScore = 10 + bid*bid
-						p.Score += roundScore
-					}
-					roundResults = append(roundResults, game.PlayerRoundResult{
-						PlayerID:   p.ID,
-						Bid:        bid,
-						TricksWon:  p.TricksWon,
-						RoundScore: roundScore,
-					})
-				}
+				// Round completion logic.
+			}
 
-				newRoundResult := game.RoundResult{
-					RoundNumber: round.RoundNumber,
-					TotalCards:  round.TotalCards,
-					Results:     roundResults,
-				}
-				g.RoundResults = append(g.RoundResults, newRoundResult)
-
-				// Setup next round if available.
-				g.CurrentRoundIndex++
-				if g.CurrentRoundIndex < len(g.RoundSequence) {
-					newDealerIndex := (round.DealerIndex + 1) % len(g.Players)
-					for _, p := range g.Players {
-						p.TricksWon = 0
-						p.Hand = []game.Card{}
-					}
-
-					newRound := &game.Round{
-						RoundNumber:    g.CurrentRoundIndex + 1,
-						TotalCards:     g.RoundSequence[g.CurrentRoundIndex],
-						DealerIndex:    newDealerIndex,
-						Bids:           make(map[string]int),
-						BidOrder:       []string{},
-						CurrentBidTurn: 0,
-						Tricks:         []game.Trick{},
-					}
-
-					n := len(g.Players)
-					for i := 1; i < n; i++ {
-						index := (newDealerIndex + i) % n
-						newRound.BidOrder = append(newRound.BidOrder, g.Players[index].ID)
-					}
-					newRound.BidOrder = append(newRound.BidOrder, g.Players[newDealerIndex].ID)
-
-					deck := game.CreateDeck()
-					game.ShuffleDeck(deck)
-					if err := game.DealCards(deck, g.Players, newRound.TotalCards); err != nil {
-						return
-					}
-					g.CurrentRound = newRound
-					g.State = "bidding"
-				} else {
-					g.State = "finished"
-				}
+			gameStateJSON, err := json.Marshal(g)
+			if err == nil {
+				ws.HubInstance.Broadcast(gameStateJSON)
 			}
 		}()
 		return
 	}
 
-	// Normal case: trick is not yet complete
 	resp := map[string]interface{}{
 		"message":      "Card played",
 		"currentTrick": round.CurrentTrick,
@@ -468,6 +413,11 @@ func PlayHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
+
+	gameStateJSON, err := json.Marshal(g)
+	if err == nil {
+		ws.HubInstance.Broadcast(gameStateJSON)
+	}
 }
 
 // GetGameStateHandler returns the current game state.

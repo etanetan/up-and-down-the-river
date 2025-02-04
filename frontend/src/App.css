@@ -182,16 +182,17 @@ input[type='number'] {
 	width: 70px;
 	background-color: #fff;
 	transition: background-color 0.3s ease;
+	transition: transform 0.3s ease, border 0.3s ease, background-color 0.3s ease;
 }
 .played-card .played-card-player {
 	font-size: 12px;
 	margin-bottom: 2px;
 }
 .played-card.winning-card {
+	transform: translateY(-10px);
 	border: 2px solid gold;
 	background-color: #fffae6;
 }
-
 /* Game controls styling */
 .game-controls {
 	margin-bottom: 20px;

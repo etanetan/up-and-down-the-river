@@ -5,56 +5,40 @@ const API_URL = 'http://localhost:8080'; // Your backend URL
 
 // Helper function to format a card.
 const formatCard = (card) => {
+	let display;
 	if (card.isJoker) {
-		// Render joker with same style as other cards.
+		display = card.jokerName;
+	} else {
+		let rankText = card.rank;
+		if (card.rank === 11) rankText = 'J';
+		else if (card.rank === 12) rankText = 'Q';
+		else if (card.rank === 13) rankText = 'K';
+		else if (card.rank === 14) rankText = 'A';
+
+		let suitSymbol = card.suit;
+		let suitColor = 'black';
+		if (card.suit.toLowerCase() === 'hearts') {
+			suitSymbol = '♥';
+			suitColor = 'red';
+		} else if (card.suit.toLowerCase() === 'diamonds') {
+			suitSymbol = '♦';
+			suitColor = 'red';
+		} else if (card.suit.toLowerCase() === 'spades') {
+			suitSymbol = '♠';
+		} else if (card.suit.toLowerCase() === 'clubs') {
+			suitSymbol = '♣';
+		}
+		display = `${rankText} ${suitSymbol}`;
 		return (
-			<span style={{ color: 'black', fontSize: '24px', fontWeight: 'bold' }}>
-				{card.jokerName}
+			<span style={{ color: suitColor, fontSize: '24px', fontWeight: 'bold' }}>
+				{display}
 			</span>
 		);
 	}
-	let rankText;
-	switch (card.rank) {
-		case 11:
-			rankText = 'J';
-			break;
-		case 12:
-			rankText = 'Q';
-			break;
-		case 13:
-			rankText = 'K';
-			break;
-		case 14:
-			rankText = 'A';
-			break;
-		default:
-			rankText = card.rank;
-	}
-	let suitSymbol;
-	let suitColor = 'black';
-	switch (card.suit.toLowerCase()) {
-		case 'hearts':
-			suitSymbol = '♥';
-			suitColor = 'red';
-			break;
-		case 'diamonds':
-			suitSymbol = '♦';
-			suitColor = 'red';
-			break;
-		case 'spades':
-			suitSymbol = '♠';
-			suitColor = 'black';
-			break;
-		case 'clubs':
-			suitSymbol = '♣';
-			suitColor = 'black';
-			break;
-		default:
-			suitSymbol = card.suit;
-	}
+	// For jokers, just use black.
 	return (
-		<span style={{ color: suitColor, fontSize: '24px', fontWeight: 'bold' }}>
-			{rankText} {suitSymbol}
+		<span style={{ color: 'black', fontSize: '24px', fontWeight: 'bold' }}>
+			{display}
 		</span>
 	);
 };
@@ -168,6 +152,38 @@ function App() {
 			setGameId(gameIdFromUrl);
 			setView('join');
 		}
+	}, []);
+
+	useEffect(() => {
+		// Create a new WebSocket connection.
+		const socket = new WebSocket('ws://localhost:8080/ws');
+
+		socket.onopen = () => {
+			console.log('WebSocket connected');
+		};
+
+		socket.onmessage = (event) => {
+			try {
+				const data = JSON.parse(event.data);
+				setGameState(data);
+				updateTurnMessages(data);
+			} catch (error) {
+				console.error('Error parsing WebSocket message:', error);
+			}
+		};
+
+		socket.onerror = (error) => {
+			console.error('WebSocket error:', error);
+		};
+
+		socket.onclose = () => {
+			console.log('WebSocket closed');
+		};
+
+		// Clean up on unmount.
+		return () => {
+			socket.close();
+		};
 	}, []);
 
 	// Create a new game.
@@ -351,9 +367,7 @@ function App() {
 					)
 				}
 			>
-				<div className="card-content">
-					{card.isJoker ? formatCard(card) : formatCard(card)}
-				</div>
+				<div className="card-content">{formatCard(card)}</div>
 			</div>
 		);
 	};
@@ -362,28 +376,30 @@ function App() {
 	// If lastTrick is held, use that instead.
 	const renderCurrentTrick = (round) => {
 		if (!round || !round.currentTrick) return null;
+
+		// Use lastTrick if it exists (so that we hold the display for a short time)
 		const trickToShow = lastTrick || round.currentTrick;
+		// Determine if the trick is complete (all players have played and a winner is declared)
+		const trickIsComplete =
+			trickToShow.plays.length === gameState.players.length &&
+			!!trickToShow.winnerID;
+
 		return (
 			<div className="current-trick-cards">
 				{trickToShow.plays.map((play, index) => {
-					const player = gameState.players.find((p) => p.id === play.playerId);
+					// If the trick is complete and this play is from the winning player, flag it.
 					const isWinning =
-						trickToShow.winnerID &&
-						play.playerId === trickToShow.winnerID &&
-						trickToShow.plays.length === gameState.players.length;
+						trickIsComplete && play.playerId === trickToShow.winnerID;
 					return (
 						<div
 							key={index}
 							className={`played-card ${isWinning ? 'winning-card' : ''}`}
 						>
 							<div className="played-card-player">
-								{player ? player.displayName : play.playerId}
+								{gameState.players.find((p) => p.id === play.playerId)
+									?.displayName || play.playerId}
 							</div>
-							<div className="played-card-content">
-								{play.card.isJoker
-									? formatCard(play.card)
-									: formatCard(play.card)}
-							</div>
+							<div className="played-card-content">{formatCard(play.card)}</div>
 						</div>
 					);
 				})}

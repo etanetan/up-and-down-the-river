@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/etanetan/up-and-down-the-river/backend/cmd/ws"
 	"github.com/etanetan/up-and-down-the-river/backend/internal/handlers"
 )
 
@@ -23,14 +24,22 @@ func withCORS(h http.HandlerFunc) http.HandlerFunc {
 }
 
 func main() {
-    // Wrap each handler with the CORS middleware.
-    http.HandleFunc("/games/create", withCORS(handlers.CreateGameHandler))
-    http.HandleFunc("/games/join", withCORS(handlers.JoinGameHandler))
-    http.HandleFunc("/games/start", withCORS(handlers.StartGameHandler))
-    http.HandleFunc("/games/bid", withCORS(handlers.BidHandler))
-    http.HandleFunc("/games/play", withCORS(handlers.PlayHandler))
-    http.HandleFunc("/games/state", withCORS(handlers.GetGameStateHandler))
+	// Create and run the WebSocket hub.
+	go ws.HubInstance.Run()
 
-    log.Println("Server started on :8080")
-    log.Fatal(http.ListenAndServe(":8080", nil))
+	// Existing HTTP routes for game logic.
+	http.HandleFunc("/games/create", withCORS(handlers.CreateGameHandler))
+	http.HandleFunc("/games/join", withCORS(handlers.JoinGameHandler))
+	http.HandleFunc("/games/start", withCORS(handlers.StartGameHandler))
+	http.HandleFunc("/games/bid", withCORS(handlers.BidHandler))
+	http.HandleFunc("/games/play", withCORS(handlers.PlayHandler))
+	http.HandleFunc("/games/state", withCORS(handlers.GetGameStateHandler))
+
+	// New WebSocket endpoint.
+	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+		ws.ServeWs(ws.HubInstance, w, r)
+	})
+
+	log.Println("Server started on :8080")
+	log.Fatal(http.ListenAndServe(":8080", nil))
 }
