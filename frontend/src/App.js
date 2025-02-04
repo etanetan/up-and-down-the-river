@@ -74,15 +74,17 @@ const sortHand = (hand) => {
 /* 
   Revised TablePlayers:
   - We compute a rotation offset so that the current player (identified by currentPlayerId)
-    ends up at 270° (bottom center).
+    ends up at 90° (bottom).
   - Then, for each player (using the order in the original players array),
     we compute angle = (360/n)*i + offset.
+  - Also, we increased the horizontal and vertical radii (radiusX and radiusY)
+    so that the players’ names appear further away from the table.
 */
 function TablePlayers({ players, currentRound, currentPlayerId }) {
 	const numPlayers = players.length;
 	// Determine the index of the current player in the players array.
 	const currentIndex = players.findIndex((p) => p.id === currentPlayerId);
-	// Compute rotation offset so that current player's angle becomes 270°.
+	// Compute rotation offset so that current player's angle becomes 90° (bottom).
 	const offset = 90 - (360 / numPlayers) * currentIndex;
 	// Map each player to an angle.
 	const playersWithAngle = players.map((player, i) => {
@@ -95,8 +97,8 @@ function TablePlayers({ players, currentRound, currentPlayerId }) {
 				// Convert the angle to radians.
 				const angleRad = (player.angle * Math.PI) / 180;
 				// Increase radii so players are further from the table.
-				const radiusX = 180; // horizontal radius in pixels
-				const radiusY = 140; // vertical radius in pixels
+				const radiusX = 220; // horizontal radius in pixels (increased)
+				const radiusY = 160; // vertical radius in pixels (increased)
 				const x = radiusX * Math.cos(angleRad);
 				const y = radiusY * Math.sin(angleRad);
 				// Convert coordinates to percentages relative to the table oval container.
@@ -271,6 +273,8 @@ function App() {
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ gameId, playerId, bid: parseInt(bid, 10) }),
 		});
+		// Clear the bid so the bid selector disappears for you
+		setBid(0);
 		fetchGameState();
 	};
 
@@ -364,6 +368,20 @@ function App() {
 				}
 			}
 		}
+	};
+
+	// Reset game state without reloading the page.
+	const resetGame = () => {
+		setView('home');
+		setGameId('');
+		setPlayerId('');
+		setDisplayName('');
+		setGameState(null);
+		setBid(0);
+		setSelectedCard(null);
+		setLastTrick(null);
+		setActionMessage('');
+		setGameOver(false);
 	};
 
 	useEffect(() => {
@@ -475,10 +493,7 @@ function App() {
 									))}
 							</tbody>
 						</table>
-						<button
-							className="play-again-button"
-							onClick={() => window.location.reload()}
-						>
+						<button className="play-again-button" onClick={resetGame}>
 							Play Again
 						</button>
 					</div>
@@ -528,9 +543,7 @@ function App() {
 							</button>
 						</div>
 					)}
-				{me && me.hand && (
-					<div className="hand-container">{sortedHand.map(renderHandCard)}</div>
-				)}
+				{/* Move Play Card section above the hand container */}
 				{selectedCard && (
 					<div className="play-card-section">
 						<button
@@ -570,6 +583,9 @@ function App() {
 							Play Card
 						</button>
 					</div>
+				)}
+				{me && me.hand && (
+					<div className="hand-container">{sortedHand.map(renderHandCard)}</div>
 				)}
 			</div>
 		);
