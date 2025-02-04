@@ -226,9 +226,6 @@ function App() {
 		});
 		setSelectedCard(null);
 		// When a trick is complete, hold the display for 2 seconds before fetching new state.
-		setTimeout(() => {
-			fetchGameState();
-		}, 2000);
 	};
 
 	// Modified fetchGameState: if current trick is complete, hold it in lastTrick.
@@ -275,6 +272,10 @@ function App() {
 	const updateTurnMessages = (data) => {
 		if (!data || !data.currentRound) {
 			setActionMessage('');
+			return;
+		}
+		if (data.trickOverMessage) {
+			setActionMessage(data.trickOverMessage); // Show "Trick is over"
 			return;
 		}
 		if (data.state === 'bidding') {
