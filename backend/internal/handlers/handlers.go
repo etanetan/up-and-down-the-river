@@ -518,6 +518,10 @@ func GetGameStateHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(g)
 }
 
+// ResetGameHandler resets the game state so that it looks like a freshly started game.
+// It clears the scoreboard and player scores, reinitializes the round sequence,
+// and deals a new round (e.g. 1 card per player if that's how the sequence starts),
+// leaving all players on the current (playing) screen.
 func ResetGameHandler(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		GameID string `json:"gameId"`
@@ -526,19 +530,18 @@ func ResetGameHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+
 	game.GamesMu.Lock()
 	defer game.GamesMu.Unlock()
+
 	g, ok := game.Games[req.GameID]
 	if !ok {
 		http.Error(w, "game not found", http.StatusNotFound)
 		return
 	}
-	// Reset game state: go back to lobby, clear current round and round results,
-	// reset players' scores, hands, tricks, bids, and missed bid counts.
-	g.State = "lobby"
-	g.CurrentRound = nil
+
+	// Clear the scoreboard and reset player state.
 	g.RoundResults = []game.RoundResult{}
-	g.RoundSequence = nil
 	g.CurrentRoundIndex = 0
 	for _, p := range g.Players {
 		p.Hand = []game.Card{}
@@ -547,9 +550,58 @@ func ResetGameHandler(w http.ResponseWriter, r *http.Request) {
 		p.CurrentBid = 0
 		p.MissedBids = 0
 	}
-	resp := map[string]string{
-		"message": "Game reset. Back to lobby.",
+
+	// Recompute the round sequence based on the creator's max cards.
+	// (Assumes you use the same logic as in StartGameHandler.)
+	maxPossible := int(math.Floor(54.0 / float64(len(g.Players))))
+	desired := g.CreatorMaxCards
+	if desired <= 0 || desired > maxPossible {
+		desired = maxPossible
 	}
+	g.RoundSequence = game.ComputeRoundSequence(desired)
+
+	// Set the game state to "bidding" for a new round.
+	g.State = "bidding"
+
+	// Choose a new dealer.
+	// You can either rotate the dealer or choose one at random.
+	// Here we'll rotate from the previous round if one exists, or choose randomly.
+	var dealerIndex int
+	if g.CurrentRound != nil {
+		dealerIndex = (g.CurrentRound.DealerIndex + 1) % len(g.Players)
+	} else {
+		dealerIndex = rand.Intn(len(g.Players))
+	}
+
+	// Create a new round using the first value in the round sequence.
+	newRound := &game.Round{
+		RoundNumber:    1, // starting over with round number 1
+		TotalCards:     g.RoundSequence[0],
+		DealerIndex:    dealerIndex,
+		Bids:           make(map[string]int),
+		BidOrder:       []string{},
+		CurrentBidTurn: 0,
+	}
+	// Set bidding order: start with the player to the left of the dealer, then dealer last.
+	n := len(g.Players)
+	for i := 1; i < n; i++ {
+		index := (dealerIndex + i) % n
+		newRound.BidOrder = append(newRound.BidOrder, g.Players[index].ID)
+	}
+	newRound.BidOrder = append(newRound.BidOrder, g.Players[dealerIndex].ID)
+	g.CurrentRound = newRound
+
+	// Create a new deck, shuffle it, and deal cards.
+	deck := game.CreateDeck()
+	game.ShuffleDeck(deck)
+	for _, p := range g.Players {
+		p.Hand = []game.Card{}
+	}
+	if err := game.DealCards(deck, g.Players, newRound.TotalCards); err != nil {
+		http.Error(w, "error dealing cards: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	json.NewEncoder(w).Encode(g)
 }

@@ -371,17 +371,9 @@ function App() {
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ gameId }),
 		});
-		// Reset local state
-		setView('home');
-		setGameId('');
-		setPlayerId('');
-		setDisplayName('');
-		setGameState(null);
-		setBid(0);
-		setSelectedCard(null);
-		setLastTrick(null);
-		setActionMessage('');
-		setGameOver(false);
+		setTimeout(() => {
+			fetchGameState();
+		}, 500);
 	};
 
 	useEffect(() => {
