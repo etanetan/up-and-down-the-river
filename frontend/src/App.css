@@ -1,38 +1,203 @@
+/* General layout */
 .App {
-  text-align: center;
+	font-family: Arial, sans-serif;
+	text-align: center;
+	position: relative;
+	min-height: 100vh;
 }
 
-.App-logo {
-  height: 40vmin;
-  pointer-events: none;
+/* Scoreboard container on the left-hand side */
+.scoreboard-container {
+	position: fixed;
+	left: 0;
+	top: 0;
+	width: 250px;
+	height: 100%;
+	background-color: #f1f1f1;
+	overflow-y: auto;
+	padding: 10px;
+	box-shadow: 2px 0 5px rgba(0, 0, 0, 0.1);
+	z-index: 100;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  .App-logo {
-    animation: App-logo-spin infinite 20s linear;
-  }
+/* Main content area with left margin */
+.main-content {
+	margin-left: 260px;
+	padding: 20px;
 }
 
-.App-header {
-  background-color: #282c34;
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  font-size: calc(10px + 2vmin);
-  color: white;
+/* Scoreboard styles */
+.scoreboard h3 {
+	margin: 10px 0;
+}
+.total-scores {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	margin-bottom: 10px;
+}
+.score-item {
+	margin-bottom: 5px;
+}
+.round-table {
+	width: 100%;
+	border-collapse: collapse;
+}
+.round-table th,
+.round-table td {
+	border: 1px solid #ccc;
+	padding: 4px;
+	text-align: center;
+	font-size: 14px;
+}
+.total-row {
+	font-weight: bold;
+	background-color: #eee;
+}
+.pending-round {
+	font-style: italic;
+	background-color: #fafafa;
 }
 
-.App-link {
-  color: #61dafb;
+/* Button and input styling */
+.button-group button,
+.lobby-section button,
+.bid-section button,
+.play-card-section button {
+	margin: 10px;
+	padding: 10px 20px;
+	font-size: 16px;
+}
+input[type='text'],
+input[type='number'] {
+	margin: 10px;
+	padding: 10px;
+	font-size: 16px;
+	width: 200px;
 }
 
-@keyframes App-logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+/* Action message styling */
+.action-message {
+	margin: 10px 0;
+	font-size: 18px;
+	font-weight: bold;
+}
+
+/* Bid selector floating panel (bottom right above hand) */
+.bid-selector {
+	position: fixed;
+	bottom: 120px;
+	right: 20px;
+	background: #fff;
+	padding: 10px;
+	box-shadow: 0 0 10px rgba(0, 0, 0, 0.3);
+	border-radius: 8px;
+	z-index: 150;
+}
+
+/* Hand container at bottom */
+.hand-container {
+	position: fixed;
+	bottom: 0;
+	left: 260px;
+	right: 0;
+	background: #f9f9f9;
+	padding: 10px 0;
+	display: flex;
+	justify-content: center;
+	box-shadow: 0 -2px 5px rgba(0, 0, 0, 0.2);
+	overflow-x: auto;
+}
+
+/* Hand card styles */
+.hand-card {
+	background-color: white;
+	border: 1px solid #333;
+	border-radius: 6px;
+	width: 70px;
+	height: 100px;
+	margin: 0 5px;
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	transition: transform 0.2s ease, box-shadow 0.2s ease;
+	cursor: pointer;
+	flex-shrink: 0;
+}
+.hand-card .card-content {
+	font-size: 24px;
+	font-weight: bold;
+	padding: 4px;
+	word-break: break-word;
+}
+.hand-card:hover {
+	transform: scale(1.05);
+	box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
+}
+.hand-card.selected {
+	background-color: whitesmoke;
+}
+
+/* Main content top section */
+.top-section {
+	margin-bottom: 20px;
+}
+
+/* Dealer info */
+.dealer-info {
+	margin: 10px 0;
+	font-size: 18px;
+	font-weight: bold;
+}
+
+/* Players info */
+.players-info {
+	margin: 10px 0;
+}
+.player-info {
+	margin: 5px;
+}
+
+/* Lobby players list */
+.lobby-players {
+	margin: 10px 0;
+}
+
+/* Current trick styling */
+.current-trick {
+	margin: 20px 0;
+	text-align: center;
+}
+.current-trick-cards {
+	display: flex;
+	justify-content: center;
+	gap: 10px;
+	flex-wrap: wrap;
+}
+.played-card {
+	border: 1px solid #333;
+	border-radius: 4px;
+	padding: 5px;
+	text-align: center;
+	width: 70px;
+	background-color: #fff;
+	transition: background-color 0.3s ease;
+}
+.played-card .played-card-player {
+	font-size: 12px;
+	margin-bottom: 2px;
+}
+.played-card.winning-card {
+	border: 2px solid gold;
+	background-color: #fffae6;
+}
+
+/* Game controls styling */
+.game-controls {
+	margin-bottom: 20px;
+}
+
+/* Additional spacing for current trick heading */
+.current-trick h4 {
+	margin-bottom: 10px;
 }
