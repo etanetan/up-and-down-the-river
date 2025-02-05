@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import './App.css';
 
 //const API_URL = 'http://localhost:8080'; // Your backend URL
-const API_URL = 'https://upanddownbackend-755936114859.us-central1.run.app'
+const API_URL = 'https://upanddownbackend-755936114859.us-central1.run.app';
 
 // Helper function to format a card.
 const formatCard = (card) => {
@@ -331,13 +331,14 @@ function App() {
 			setActionMessage('');
 			return;
 		}
+
+		// Handle bidding phase
 		if (data.state === 'bidding') {
 			const round = data.currentRound;
 			const currentBidderId = round.bidOrder[round.currentBidTurn];
 			if (currentBidderId === playerId) {
 				setActionMessage('YOUR TURN to bid');
 			} else {
-				// Even when it's not your turn, show the waiting message on every client.
 				const currentBidder = data.players.find(
 					(p) => p.id === currentBidderId
 				);
@@ -347,20 +348,29 @@ function App() {
 					setActionMessage('');
 				}
 			}
-		} else if (data.state === 'playing') {
+		}
+		// Handle playing phase
+		else if (data.state === 'playing') {
 			const round = data.currentRound;
-			// Calculate the current player whose turn it is to play a card.
-			if (round.currentTrick.plays.length < data.players.length) {
+			// Check if the trick is complete and a winner is determined.
+			if (
+				round.currentTrick.plays.length === data.players.length &&
+				round.currentTrick.winnerID
+			) {
+				const winner = data.players.find(
+					(p) => p.id === round.currentTrick.winnerID
+				);
+				if (winner) {
+					setActionMessage(`${winner.displayName} won the trick!`);
+				} else {
+					setActionMessage('');
+				}
+			}
+			// Otherwise, if the trick is still in progress.
+			else if (round.currentTrick.plays.length < data.players.length) {
 				const currentPlayerIndex =
 					(round.trickLeader + round.trickTurnIndex) % data.players.length;
 				const currentPlayer = data.players[currentPlayerIndex];
-				console.log(
-					'Playing phase:',
-					'currentPlayer.id =',
-					currentPlayer.id,
-					'local playerId =',
-					playerId
-				);
 				if (currentPlayer.id === playerId) {
 					setActionMessage('YOUR TURN to play a card');
 				} else {
@@ -371,7 +381,9 @@ function App() {
 			} else {
 				setActionMessage('');
 			}
-		} else {
+		}
+		// Fallback for other states
+		else {
 			setActionMessage('');
 		}
 	};
