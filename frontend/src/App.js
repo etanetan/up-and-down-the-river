@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import './App.css';
 
-//const API_URL = 'http://localhost:8080'; // Your backend URL
-const API_URL = 'https://0af2-2601-445-801-8360-b9a0-5997-b456-2f50.ngrok-free.app'; // Your backend URL
+const API_URL = 'http://localhost:8080'; // Your backend URL
 
 // Helper function to format a card.
 const formatCard = (card) => {
@@ -233,7 +232,7 @@ function App() {
 	const createGame = async () => {
 		const response = await fetch(`${API_URL}/games/create`, {
 			method: 'POST',
-			headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
+			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ displayName, creatorMaxCards }),
 		});
 		const data = await response.json();
@@ -249,7 +248,7 @@ function App() {
 		}
 		const response = await fetch(`${API_URL}/games/join`, {
 			method: 'POST',
-			headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
+			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ gameId, displayName }),
 		});
 		const data = await response.json();
@@ -260,7 +259,7 @@ function App() {
 	const startGame = async () => {
 		await fetch(`${API_URL}/games/start`, {
 			method: 'POST',
-			headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
+			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ gameId }),
 		});
 		fetchGameState();
@@ -269,7 +268,7 @@ function App() {
 	const placeBid = async () => {
 		await fetch(`${API_URL}/games/bid`, {
 			method: 'POST',
-			headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
+			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ gameId, playerId, bid: parseInt(bid, 10) }),
 		});
 		// Clear the bid so the bid selector disappears for you immediately
@@ -281,7 +280,7 @@ function App() {
 		if (!selectedCard) return;
 		await fetch(`${API_URL}/games/play`, {
 			method: 'POST',
-			headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
+			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ gameId, playerId, card: selectedCard }),
 		});
 		setSelectedCard(null);
@@ -381,7 +380,7 @@ function App() {
 	const resetGame = async () => {
 		await fetch(`${API_URL}/games/reset`, {
 			method: 'POST',
-			headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
+			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ gameId }),
 		});
 		setTimeout(() => {
