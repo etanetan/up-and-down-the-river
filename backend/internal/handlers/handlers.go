@@ -358,6 +358,9 @@ func PlayHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Check if the trick is complete.
 	if len(round.CurrentTrick.Plays) == len(g.Players) {
+
+		time.Sleep(500 * time.Millisecond)
+		
 		leadSuit := strings.ToLower(round.CurrentTrick.Plays[0].Card.Suit)
 		winningPlay := round.CurrentTrick.Plays[0]
 		for _, p := range round.CurrentTrick.Plays[1:] {
