@@ -113,6 +113,7 @@ type Game struct {
 	CurrentRoundIndex int               `json:"currentRoundIndex"`
 	CreatorMaxCards   int               `json:"creatorMaxCards"`
 	RoundResults      []RoundResult     `json:"roundResults"`
+	TrickOverMessage  string            `json:"trickOverMessage,omitempty"`
 }
 
 // Global games map and its mutex.

@@ -373,28 +373,34 @@ func PlayHandler(w http.ResponseWriter, r *http.Request) {
 			winningMessage = fmt.Sprintf("%s won the trick!", winner.DisplayName)
 		}
 
+		// Persist the trick-over message in the game state.
+		g.TrickOverMessage = winningMessage
+
 		round.Tricks = append(round.Tricks, *round.CurrentTrick)
 
-		// Respond with the winning message.
+		// Immediately send the response with the trick-over message.
 		resp := map[string]interface{}{
 			"message":          "Card played",
 			"currentTrick":     round.CurrentTrick,
 			"tricks":           round.Tricks,
-			"winningCard":      winningPlay.Card, // Send winning card to frontend
-			"trickOverMessage": winningMessage,     // Winner message with player's name
+			"winningCard":      winningPlay.Card,
+			"trickOverMessage": winningMessage,
 			"playerHand":       player.Hand,
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(resp)
 
-		// Delay before progressing to the next trick or round.
+		// After 2 seconds, update the game state to transition to bidding.
 		go func() {
-			time.Sleep(2000 * time.Millisecond) // Wait 2 seconds for highlight effect
+			time.Sleep(2000 * time.Millisecond) // Wait 2 seconds for the UI to display the winning message
 
 			game.GamesMu.Lock()
 			defer game.GamesMu.Unlock()
 
-			// If players still have cards, continue the round.
+			// Clear the trick-over message as we transition.
+			g.TrickOverMessage = ""
+
+			// If players still have cards, prepare the next trick.
 			if len(g.Players[0].Hand) > 0 {
 				var winnerIndex int
 				for i, p := range g.Players {
@@ -409,6 +415,7 @@ func PlayHandler(w http.ResponseWriter, r *http.Request) {
 					Plays:    []game.Play{},
 				}
 				round.TrickTurnIndex = 0
+				// The state remains "playing" until the trick is fully reset.
 			} else {
 				// End of round. Record round results.
 				var roundResults []game.PlayerRoundResult
