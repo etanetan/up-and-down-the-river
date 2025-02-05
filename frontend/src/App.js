@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import './App.css';
 
 //const API_URL = 'http://localhost:8080'; // Your backend URL
-const API_URL = 'https://b502-2601-445-801-8360-b9a0-5997-b456-2f50.ngrok-free.app'; // Your backend URL
+const API_URL = 'https://0af2-2601-445-801-8360-b9a0-5997-b456-2f50.ngrok-free.app'; // Your backend URL
 
 // Helper function to format a card.
 const formatCard = (card) => {
