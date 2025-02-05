@@ -10,7 +10,7 @@ RUN go mod download
 
 # Copy the entire backend folder into the container.
 # Adjust the copy command if your Dockerfile is at project root.
-COPY backend ./backend
+COPY . .
 
 # Change working directory to your server directory.
 WORKDIR /app/backend/cmd/server
