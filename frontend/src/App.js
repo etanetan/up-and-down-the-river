@@ -332,7 +332,13 @@ function App() {
 			return;
 		}
 
-		// Handle bidding phase
+		// If the backend sent a trickOverMessage, show it immediately.
+		if (data.trickOverMessage) {
+			setActionMessage(data.trickOverMessage);
+			return;
+		}
+
+		// Handle bidding phase.
 		if (data.state === 'bidding') {
 			const round = data.currentRound;
 			const currentBidderId = round.bidOrder[round.currentBidTurn];
@@ -349,25 +355,14 @@ function App() {
 				}
 			}
 		}
-		// Handle playing phase
+		// Handle playing phase.
 		else if (data.state === 'playing') {
 			const round = data.currentRound;
-			// Check if the trick is complete and a winner is determined.
+			// If trick is not complete yet.
 			if (
-				round.currentTrick.plays.length === data.players.length &&
-				round.currentTrick.winnerID
+				round.currentTrick &&
+				round.currentTrick.plays.length < data.players.length
 			) {
-				const winner = data.players.find(
-					(p) => p.id === round.currentTrick.winnerID
-				);
-				if (winner) {
-					setActionMessage(`${winner.displayName} won the trick!`);
-				} else {
-					setActionMessage('');
-				}
-			}
-			// Otherwise, if the trick is still in progress.
-			else if (round.currentTrick.plays.length < data.players.length) {
 				const currentPlayerIndex =
 					(round.trickLeader + round.trickTurnIndex) % data.players.length;
 				const currentPlayer = data.players[currentPlayerIndex];
@@ -381,9 +376,7 @@ function App() {
 			} else {
 				setActionMessage('');
 			}
-		}
-		// Fallback for other states
-		else {
+		} else {
 			setActionMessage('');
 		}
 	};

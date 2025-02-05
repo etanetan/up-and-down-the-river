@@ -356,7 +356,7 @@ func PlayHandler(w http.ResponseWriter, r *http.Request) {
 	round.CurrentTrick.Plays = append(round.CurrentTrick.Plays, play)
 	round.TrickTurnIndex++
 
-	// Check if the trick is complete
+	// Check if the trick is complete.
 	if len(round.CurrentTrick.Plays) == len(g.Players) {
 		leadSuit := strings.ToLower(round.CurrentTrick.Plays[0].Card.Suit)
 		winningPlay := round.CurrentTrick.Plays[0]
@@ -367,25 +367,27 @@ func PlayHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		round.CurrentTrick.WinnerID = winningPlay.PlayerID
 
+		var winningMessage string = "Trick is over"
 		if winner, _ := game.FindPlayer(g, winningPlay.PlayerID); winner != nil {
 			winner.TricksWon++
+			winningMessage = fmt.Sprintf("%s won the trick!", winner.DisplayName)
 		}
 
 		round.Tricks = append(round.Tricks, *round.CurrentTrick)
 
-		// 🔥 Add a "Trick is over" message
+		// Respond with the winning message.
 		resp := map[string]interface{}{
 			"message":          "Card played",
 			"currentTrick":     round.CurrentTrick,
 			"tricks":           round.Tricks,
 			"winningCard":      winningPlay.Card, // Send winning card to frontend
-			"trickOverMessage": "Trick is over",  // New trick over message
+			"trickOverMessage": winningMessage,     // Winner message with player's name
 			"playerHand":       player.Hand,
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(resp)
 
-		// 🔥 Delay before progressing to the next trick or round
+		// Delay before progressing to the next trick or round.
 		go func() {
 			time.Sleep(2000 * time.Millisecond) // Wait 2 seconds for highlight effect
 
@@ -468,19 +470,15 @@ func PlayHandler(w http.ResponseWriter, r *http.Request) {
 				} else {
 					g.State = "finished"
 					time.Sleep(2000 * time.Millisecond)
-					// Optionally, attach extra info (you might add a field like FinishedAt, or compute missed bid counts)
 					for _, p := range g.Players {
 						missedRounds := 0
 						for _, roundResult := range g.RoundResults {
-								// Assuming roundResult.Results contains each player's result for that round.
-								for _, res := range roundResult.Results {
-										if res.PlayerID == p.ID && res.TricksWon != res.Bid {
-												missedRounds++
-										}
+							for _, res := range roundResult.Results {
+								if res.PlayerID == p.ID && res.TricksWon != res.Bid {
+									missedRounds++
 								}
+							}
 						}
-						// You could, for example, add this info to the Player struct or in a separate field.
-						// For this example, assume you extend Player with a MissedBids field.
 						p.MissedBids = missedRounds
 					}
 				}
@@ -489,7 +487,7 @@ func PlayHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Normal case: trick is not yet complete
+	// Normal case: trick is not yet complete.
 	resp := map[string]interface{}{
 		"message":      "Card played",
 		"currentTrick": round.CurrentTrick,
