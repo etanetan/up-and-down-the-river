@@ -1,10 +1,17 @@
 import React, { useState, useEffect } from 'react';
+import BidModal from './BidModal'; // Import the vertical bidding modal component
 import './App.css';
 
-//const API_URL = 'http://localhost:8080'; // Your backend URL
+// Set the backend API URL. When running locally you might use localhost,
+// but here we're using the Cloud Run URL.
 const API_URL = 'https://upanddownbackend-755936114859.us-central1.run.app';
 
-// Helper function to format a card.
+// ---------------------------
+// Helper Functions
+// ---------------------------
+
+// formatCard: Formats a card object into a styled JSX element.
+// If the card is a Joker, display the joker name in bold; otherwise, display the rank and suit.
 const formatCard = (card) => {
 	if (card.isJoker) {
 		return (
@@ -14,6 +21,7 @@ const formatCard = (card) => {
 		);
 	}
 	let rankText;
+	// Determine the text to show based on the card's rank.
 	switch (card.rank) {
 		case 11:
 			rankText = 'J';
@@ -32,6 +40,7 @@ const formatCard = (card) => {
 	}
 	let suitSymbol;
 	let suitColor = 'black';
+	// Determine the suit symbol and color.
 	switch (card.suit.toLowerCase()) {
 		case 'hearts':
 			suitSymbol = '♥';
@@ -59,7 +68,8 @@ const formatCard = (card) => {
 	);
 };
 
-// Helper to sort cards by suit then by rank ascending.
+// sortHand: Takes an array of card objects and returns a new array sorted by suit
+// (using the order: diamonds, clubs, hearts, spades) and then by rank in ascending order.
 const sortHand = (hand) => {
 	const suitOrder = { diamonds: 1, clubs: 2, hearts: 3, spades: 4 };
 	return hand.slice().sort((a, b) => {
@@ -72,19 +82,19 @@ const sortHand = (hand) => {
 	});
 };
 
-/* 
-  TablePlayers:
-  - Computes a rotation offset so that the current player (identified by currentPlayerId)
-    appears at the bottom (90°).
-  - The radii have been increased so that players’ names appear further from the table.
-*/
+// ---------------------------
+// Components
+// ---------------------------
+
+// TablePlayers: Displays the players around the table with their display name and bid/tricks info.
+// It calculates a rotation angle so that the current player's information appears at the bottom.
 function TablePlayers({ players, currentRound, currentPlayerId }) {
 	const numPlayers = players.length;
-	// Determine the index of the current player in the players array.
+	// Find the index of the current player so we can rotate the layout accordingly.
 	const currentIndex = players.findIndex((p) => p.id === currentPlayerId);
-	// Compute rotation offset so that current player's angle becomes 90° (bottom).
+	// Compute the offset to set the current player's angle to 90° (bottom center).
 	const offset = 90 - (360 / numPlayers) * currentIndex;
-	// Map each player to an angle.
+	// Map over players to compute each player's angle.
 	const playersWithAngle = players.map((player, i) => {
 		const angle = (360 / numPlayers) * i + offset;
 		return { ...player, angle };
@@ -92,17 +102,17 @@ function TablePlayers({ players, currentRound, currentPlayerId }) {
 	return (
 		<div className="table-players">
 			{playersWithAngle.map((player) => {
-				// Convert the angle to radians.
+				// Convert the angle from degrees to radians for the trigonometric functions.
 				const angleRad = (player.angle * Math.PI) / 180;
-				// Increase radii so players are further from the table.
-				const radiusX = 220; // horizontal radius (increased)
-				const radiusY = 160; // vertical radius (increased)
+				// Set radii for positioning the players further from the table's center.
+				const radiusX = 220; // Horizontal radius
+				const radiusY = 160; // Vertical radius
 				const x = radiusX * Math.cos(angleRad);
 				const y = radiusY * Math.sin(angleRad);
-				// Convert coordinates to percentages relative to the table oval container.
+				// Convert the x and y coordinates to percentages relative to the table container.
 				const left = 50 + (x / 400) * 100;
 				const top = 50 + (y / 300) * 100;
-				// If a player has not bid, show "(-)"
+				// Determine the bid for display. If no bid exists, display a hyphen.
 				const bid =
 					currentRound &&
 					currentRound.bids &&
@@ -115,12 +125,15 @@ function TablePlayers({ players, currentRound, currentPlayerId }) {
 						className="table-player"
 						style={{ left: `${left}%`, top: `${top}%` }}
 					>
+						{/* Display the player's name and a combined view of tricks won and their bid.
+                Format: "PlayerName (tricksWon/bid)" */}
 						<div className="table-player-info">
 							{player.displayName}{' '}
 							<span className="table-player-bid">
 								({player.tricksWon || 0}/{bid})
 							</span>
 						</div>
+						{/* Display a dealer chip ("D") if this player is the dealer */}
 						{currentRound &&
 							currentRound.dealerIndex !== undefined &&
 							players[currentRound.dealerIndex] &&
@@ -134,7 +147,7 @@ function TablePlayers({ players, currentRound, currentPlayerId }) {
 	);
 }
 
-// Scoreboard component with a simple header.
+// Scoreboard: Displays a table of scores for each player.
 function Scoreboard({ gameState }) {
 	if (!gameState) return null;
 	const maxScore = Math.max(...gameState.players.map((p) => p.score));
@@ -175,6 +188,7 @@ function Scoreboard({ gameState }) {
 								})}
 							</tr>
 						))}
+					{/* Show pending round bids if game state is not finished */}
 					{gameState.currentRound && gameState.state !== 'finished' && (
 						<tr className="pending-round">
 							<td>{gameState.currentRound.totalCards}</td>
@@ -207,23 +221,34 @@ function Scoreboard({ gameState }) {
 	);
 }
 
+// ---------------------------
+// Main App Component
+// ---------------------------
+
 function App() {
-	// Views: "home", "join", "lobby", "game"
-	// When the game is finished, a game-over overlay appears.
+	// Maintain various pieces of state:
+	// view: current view ("home", "join", "lobby", or "game")
+	// gameId, playerId, displayName: identifiers and name information
+	// creatorMaxCards: maximum number of cards (set by game creator)
+	// gameState: the current game state fetched from the backend
+	// selectedCard: currently selected card (if any)
+	// lastTrick: holds the most recent trick (used for animations or delayed updates)
+	// actionMessage: a message for the UI (e.g., whose turn it is or who won the trick)
+	// gameOver: flag for game completion
 	const [view, setView] = useState('home');
 	const [gameId, setGameId] = useState('');
 	const [playerId, setPlayerId] = useState('');
 	const [displayName, setDisplayName] = useState('');
 	const [creatorMaxCards, setCreatorMaxCards] = useState(10);
 	const [gameState, setGameState] = useState(null);
-	const [bid, setBid] = useState(0);
 	const [selectedCard, setSelectedCard] = useState(null);
 	const [lastTrick, setLastTrick] = useState(null);
 	const [actionMessage, setActionMessage] = useState('');
 	const [gameOver, setGameOver] = useState(false);
 
+	// On component mount, check if there's a gameId in the URL.
+	// If so, set the gameId and move to the join view.
 	useEffect(() => {
-		// Get the pathname and remove any leading slash.
 		const path = window.location.pathname;
 		const gameIdFromUrl = path.length > 1 ? path.substring(1) : null;
 		if (gameIdFromUrl) {
@@ -232,6 +257,7 @@ function App() {
 		}
 	}, []);
 
+	// Create a new game by calling the backend.
 	const createGame = async () => {
 		const response = await fetch(`${API_URL}/games/create`, {
 			method: 'POST',
@@ -244,6 +270,7 @@ function App() {
 		setView('lobby');
 	};
 
+	// Join an existing game.
 	const joinGame = async () => {
 		if (!gameId || !displayName) {
 			console.error('Game ID or display name is missing.');
@@ -259,6 +286,7 @@ function App() {
 		setView('lobby');
 	};
 
+	// Start the game by transitioning to the bidding phase.
 	const startGame = async () => {
 		await fetch(`${API_URL}/games/start`, {
 			method: 'POST',
@@ -268,17 +296,17 @@ function App() {
 		fetchGameState();
 	};
 
-	const placeBid = async () => {
+	// Handle placing a bid from the BidModal.
+	const handlePlaceBid = async (bidValue) => {
 		await fetch(`${API_URL}/games/bid`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ gameId, playerId, bid: parseInt(bid, 10) }),
+			body: JSON.stringify({ gameId, playerId, bid: parseInt(bidValue, 10) }),
 		});
-		// Clear the bid so the bid selector disappears for you immediately
-		setBid(0);
 		fetchGameState();
 	};
 
+	// Play a selected card.
 	const playSelectedCard = async () => {
 		if (!selectedCard) return;
 		await fetch(`${API_URL}/games/play`, {
@@ -289,6 +317,7 @@ function App() {
 		setSelectedCard(null);
 	};
 
+	// Fetch the current game state from the backend.
 	const fetchGameState = async () => {
 		const response = await fetch(`${API_URL}/games/state?gameId=${gameId}`);
 		if (!response.ok) {
@@ -297,10 +326,13 @@ function App() {
 			return;
 		}
 		const data = await response.json();
+		// If the game state indicates that the game is finished, update gameOver flag.
 		if (data.state === 'finished') {
 			setGameState(data);
 			setGameOver(true);
 		} else {
+			// If a trick is complete (all players played and a winner is set),
+			// temporarily hold the trick state before updating gameState.
 			if (
 				data.currentRound &&
 				data.currentRound.currentTrick &&
@@ -312,11 +344,12 @@ function App() {
 					setTimeout(() => {
 						setGameState(data);
 						setLastTrick(null);
-					}, 2000);
+					}, 2000); // Delay to allow UI to display the trick-over message
 				}
 			} else {
 				setGameState(data);
 			}
+			// If the game state is one of these, set the view to 'game'.
 			if (
 				data.state === 'bidding' ||
 				data.state === 'playing' ||
@@ -325,22 +358,25 @@ function App() {
 				setView('game');
 			}
 		}
+		// Update the action message (e.g., whose turn it is) based on the game state.
 		updateTurnMessages(data);
 	};
 
+	// updateTurnMessages: Updates the UI message that tells the user what is happening.
+	// It prioritizes the trickOverMessage if present, then displays appropriate messages for bidding or playing.
 	const updateTurnMessages = (data) => {
 		if (!data || !data.currentRound) {
 			setActionMessage('');
 			return;
 		}
 
-		// If the backend sent a trickOverMessage, show it immediately.
+		// If the backend sent a trickOverMessage (e.g., "Alice won the trick!"), display it immediately.
 		if (data.trickOverMessage) {
 			setActionMessage(data.trickOverMessage);
 			return;
 		}
 
-		// Handle bidding phase.
+		// Handle bidding phase: show "YOUR TURN to bid" or "Waiting for [player] to bid".
 		if (data.state === 'bidding') {
 			const round = data.currentRound;
 			const currentBidderId = round.bidOrder[round.currentBidTurn];
@@ -357,10 +393,9 @@ function App() {
 				}
 			}
 		}
-		// Handle playing phase.
+		// Handle playing phase: show whose turn it is to play a card.
 		else if (data.state === 'playing') {
 			const round = data.currentRound;
-			// If trick is not complete yet.
 			if (
 				round.currentTrick &&
 				round.currentTrick.plays.length < data.players.length
@@ -383,19 +418,20 @@ function App() {
 		}
 	};
 
-	// Reset game state by calling the backend reset endpoint,
-	// then resetting local state so it’s as if the game was just created.
+	// resetGame: Calls the backend to reset the game state and then refreshes the local state.
 	const resetGame = async () => {
 		await fetch(`${API_URL}/games/reset`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ gameId }),
 		});
+		// Short delay before refetching the state to ensure backend update.
 		setTimeout(() => {
 			fetchGameState();
 		}, 500);
 	};
 
+	// Poll the backend for the game state every 2 seconds.
 	useEffect(() => {
 		const interval = setInterval(() => {
 			if (gameId) fetchGameState();
@@ -403,13 +439,14 @@ function App() {
 		return () => clearInterval(interval);
 	}, [gameId]);
 
+	// isMyTurnToBid: Checks if the local player is the current bidder.
 	const isMyTurnToBid = () => {
 		if (!gameState || !gameState.currentRound) return false;
 		const round = gameState.currentRound;
 		return round.bidOrder[round.currentBidTurn] === playerId;
 	};
 
-	// Render a card from the player's hand (clickable only when game state is 'playing').
+	// Render a card from the player's hand. The card is clickable when it's the playing phase.
 	const renderHandCard = (card, index) => {
 		return (
 			<div
@@ -424,6 +461,7 @@ function App() {
 				}`}
 				onClick={() => {
 					if (gameState && gameState.state === 'playing') {
+						// Toggle selection: if already selected, unselect; otherwise, select this card.
 						setSelectedCard(
 							selectedCard &&
 								selectedCard.isJoker === card.isJoker &&
@@ -442,13 +480,16 @@ function App() {
 		);
 	};
 
+	// Render the current trick cards on the table.
 	const renderCurrentTrick = (round) => {
 		if (!round || !round.currentTrick) return null;
+		// Use lastTrick if set (for animation/delay effect), otherwise use the current trick.
 		const trickToShow = lastTrick || round.currentTrick;
 		return (
 			<div className="current-trick-cards">
 				{trickToShow.plays.map((play, index) => {
 					const player = gameState.players.find((p) => p.id === play.playerId);
+					// Determine if this card is the winning card.
 					const isWinning =
 						trickToShow.winnerID &&
 						play.playerId === trickToShow.winnerID &&
@@ -473,13 +514,17 @@ function App() {
 		);
 	};
 
+	// Render the main game board.
 	const renderGameBoard = () => {
 		if (!gameState) return <div>Loading game state...</div>;
+		// 'me' represents the local player.
 		const me = gameState.players.find((p) => p.id === playerId);
 		const round = gameState.currentRound;
+		// Sort the player's hand for display.
 		const sortedHand = me && me.hand ? sortHand(me.hand) : [];
 		return (
 			<div className="game-board">
+				{/* If the game is finished, display game over summary */}
 				{gameState.state === 'finished' && (
 					<div className="game-over-summary">
 						<h1>GAME OVER</h1>
@@ -510,11 +555,12 @@ function App() {
 					</div>
 				)}
 				<div className="top-section">
+					{/* Display the current action message (e.g., whose turn it is, or trick win message) */}
 					<div className="action-message">
 						<p>{gameState.state === 'finished' ? '' : actionMessage}</p>
 					</div>
 				</div>
-				{/* Centered oval table with played cards and players inside */}
+				{/* Table container holds the central oval table with trick cards and players */}
 				<div className="table-container">
 					<div className="table-oval">
 						{round &&
@@ -538,23 +584,13 @@ function App() {
 						</div>
 					)}
 				</div>
-				{gameState.state === 'bidding' &&
+				{/* Show the vertical BidModal during bidding phase if the current player hasn't bid yet */}
+				{gameState &&
+					gameState.state === 'bidding' &&
 					!gameState.currentRound.bids[playerId] && (
-						<div className="bid-selector">
-							<h4>Bidding</h4>
-							<input
-								type="number"
-								value={bid}
-								onChange={(e) => setBid(e.target.value)}
-								placeholder="Your bid"
-								disabled={gameState.state !== 'bidding'}
-							/>
-							<button onClick={placeBid} disabled={!isMyTurnToBid()}>
-								Place Bid
-							</button>
-						</div>
+						<BidModal onPlaceBid={handlePlaceBid} isMyTurn={isMyTurnToBid()} />
 					)}
-				{/* Play Card section moved above the hand container */}
+				{/* When a card is selected in the playing phase, show the Play Card button */}
 				{selectedCard && (
 					<div className="play-card-section">
 						<button
@@ -602,6 +638,7 @@ function App() {
 		);
 	};
 
+	// Render different views based on the current state: home, join, lobby, or game.
 	if (view === 'home') {
 		return (
 			<div className="App">

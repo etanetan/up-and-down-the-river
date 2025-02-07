@@ -1,0 +1,48 @@
+/* Container for the bidding modal. Uses flex layout to arrange elements vertically. */
+.bid-modal {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	padding: 20px;
+	border: 2px solid #444;
+	border-radius: 10px;
+	background-color: #f9f9f9;
+	width: 200px;
+	margin: 0 auto;
+}
+
+/* Header styling for the bid modal. */
+.bid-header {
+	margin-bottom: 10px;
+	font-size: 1.5em;
+}
+
+/* Styling for the up and down arrow buttons. */
+.arrow-button {
+	font-size: 1.5em;
+	background: none;
+	border: none;
+	cursor: pointer;
+	margin: 5px 0;
+}
+
+/* Styling for the numeric bid input field. */
+.bid-input {
+	width: 80px;
+	text-align: center;
+	font-size: 1.2em;
+	margin: 10px 0;
+	padding: 5px;
+}
+
+/* Styling for the Place Bid button. */
+.place-bid-button {
+	margin-top: 15px;
+	padding: 10px 20px;
+	font-size: 1em;
+	cursor: pointer;
+	background-color: #007bff;
+	border: none;
+	border-radius: 5px;
+	color: #fff;
+}
