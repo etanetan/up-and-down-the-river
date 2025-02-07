@@ -116,8 +116,10 @@ function TablePlayers({ players, currentRound, currentPlayerId }) {
 						style={{ left: `${left}%`, top: `${top}%` }}
 					>
 						<div className="table-player-info">
-							<strong>{player.tricksWon || 0}</strong> {player.displayName}{' '}
-							<span className="table-player-bid">({bid})</span>
+							{player.displayName}{' '}
+							<span className="table-player-bid">
+								({player.tricksWon || 0}/{bid})
+							</span>
 						</div>
 						{currentRound &&
 							currentRound.dealerIndex !== undefined &&
