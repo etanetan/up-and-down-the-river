@@ -257,6 +257,71 @@ function App() {
 		}
 	}, []);
 
+	// Helper to compare two card objects
+	const cardMatches = (a, b) => {
+		return (
+			a &&
+			b &&
+			a.isJoker === b.isJoker &&
+			a.suit === b.suit &&
+			a.rank === b.rank
+		);
+	};
+
+	useEffect(() => {
+		const handleKeyDown = (e) => {
+			// Enable keyboard shortcuts only during the game and playing phase
+			if (view !== 'game' || !gameState || gameState.state !== 'playing')
+				return;
+
+			// Get the current player's hand and sort it
+			const me = gameState.players.find((p) => p.id === playerId);
+			if (!me || !me.hand || me.hand.length === 0) return;
+			const sortedHand = sortHand(me.hand);
+
+			// If a number key is pressed, select that card (1-indexed)
+			if (e.key >= '1' && e.key <= String(sortedHand.length)) {
+				const index = parseInt(e.key, 10) - 1;
+				setSelectedCard(sortedHand[index]);
+			}
+			// Use the right arrow to move selection to the next card;
+			// if no card is selected, select the first card.
+			else if (e.key === 'ArrowRight') {
+				if (!selectedCard) {
+					setSelectedCard(sortedHand[0]);
+				} else {
+					const currentIndex = sortedHand.findIndex((card) =>
+						cardMatches(card, selectedCard)
+					);
+					const newIndex = (currentIndex + 1) % sortedHand.length;
+					setSelectedCard(sortedHand[newIndex]);
+				}
+			}
+			// Use the left arrow to move selection to the previous card.
+			else if (e.key === 'ArrowLeft') {
+				if (!selectedCard) {
+					setSelectedCard(sortedHand[sortedHand.length - 1]);
+				} else {
+					const currentIndex = sortedHand.findIndex((card) =>
+						cardMatches(card, selectedCard)
+					);
+					const newIndex =
+						(currentIndex - 1 + sortedHand.length) % sortedHand.length;
+					setSelectedCard(sortedHand[newIndex]);
+				}
+			}
+			// If Enter is pressed while a card is selected, play the card.
+			else if (e.key === 'Enter') {
+				if (selectedCard) {
+					playSelectedCard();
+				}
+			}
+		};
+
+		window.addEventListener('keydown', handleKeyDown);
+		return () => window.removeEventListener('keydown', handleKeyDown);
+	}, [view, gameState, playerId, selectedCard]);
+
 	// Create a new game by calling the backend.
 	const createGame = async () => {
 		const response = await fetch(`${API_URL}/games/create`, {
@@ -588,7 +653,11 @@ function App() {
 				{gameState &&
 					gameState.state === 'bidding' &&
 					!gameState.currentRound.bids[playerId] && (
-						<BidModal onPlaceBid={handlePlaceBid} isMyTurn={isMyTurnToBid()} />
+						<BidModal
+							onPlaceBid={handlePlaceBid}
+							isMyTurn={isMyTurnToBid()}
+							maxBid={gameState.currentRound.totalCards}
+						/>
 					)}
 				{/* When a card is selected in the playing phase, show the Play Card button */}
 				{selectedCard && (
