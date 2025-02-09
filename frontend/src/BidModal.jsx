@@ -40,21 +40,22 @@ function BidModal({ onPlaceBid, isMyTurn, maxBid }) {
 			} else if (e.key === 'ArrowDown') {
 				decrementBid();
 			} else if (e.key >= '0' && e.key <= '9') {
-				const newBid = parseInt(e.key);
+				const newBid = parseInt(e.key, 10);
 				setBid((prev) => {
-					const updatedBid = prev === 0 ? newBid : parseInt(`${prev}${newBid}`);
-					return Math.min(updatedBid, maxBid); // Ensure it doesn't exceed maxBid
+					const updatedBid =
+						prev === 0 ? newBid : parseInt(`${prev}${newBid}`, 10);
+					return Math.min(updatedBid, maxBid);
 				});
 			} else if (e.key === 'Backspace') {
-				setBid((prev) => Math.floor(prev / 10)); // Remove last digit
+				setBid((prev) => Math.floor(prev / 10));
 			} else if (e.key === 'Enter' || e.key === 'Return') {
-				handlePlaceBid(); // Submit bid when Enter is pressed
+				handlePlaceBid();
 			}
 		};
 
 		window.addEventListener('keydown', handleKeyDown);
 		return () => window.removeEventListener('keydown', handleKeyDown);
-	}, [isMyTurn, bid, maxBid]); // Ensure it updates dynamically
+	}, [isMyTurn, bid, maxBid]);
 
 	return (
 		<div className="bid-modal">

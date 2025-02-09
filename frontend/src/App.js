@@ -2,18 +2,14 @@ import React, { useState, useEffect } from 'react';
 import BidModal from './BidModal'; // Import the vertical bidding modal component
 import './App.css';
 
-// Set the backend API URL.
 const API_URL = 'https://upanddownbackend-755936114859.us-central1.run.app';
 
 // ---------------------------
 // Helper Functions
 // ---------------------------
 
-// normalizeId: Trims and lowercases an id string for robust comparisons.
 const normalizeId = (id) => (id || '').trim().toLowerCase();
 
-// formatCard: Formats a card object into a styled JSX element.
-// With the new structure, any card with rank > 14 is considered a joker.
 const formatCard = (card) => {
 	if (card.rank > 14) {
 		// Joker: rank 16 is Joker 1, rank 15 is Joker 2.
@@ -25,7 +21,6 @@ const formatCard = (card) => {
 		);
 	}
 	let rankText;
-	// Determine the text to show based on the card's rank.
 	switch (card.rank) {
 		case 11:
 			rankText = 'J';
@@ -44,7 +39,6 @@ const formatCard = (card) => {
 	}
 	let suitSymbol;
 	let suitColor = 'black';
-	// Determine the suit symbol and color.
 	switch (card.suit.toLowerCase()) {
 		case 'hearts':
 			suitSymbol = '♥';
@@ -72,8 +66,6 @@ const formatCard = (card) => {
 	);
 };
 
-// sortHand: Returns a new array sorted by suit (order: diamonds, clubs, hearts, spades)
-// and then by rank in ascending order.
 const sortHand = (hand) => {
 	const suitOrder = { diamonds: 1, clubs: 2, hearts: 3, spades: 4 };
 	return hand.slice().sort((a, b) => {
@@ -87,10 +79,22 @@ const sortHand = (hand) => {
 };
 
 // ---------------------------
+// Custom Hook: useWindowWidth
+// ---------------------------
+function useWindowWidth() {
+	const [width, setWidth] = useState(window.innerWidth);
+	useEffect(() => {
+		const handleResize = () => setWidth(window.innerWidth);
+		window.addEventListener('resize', handleResize);
+		return () => window.removeEventListener('resize', handleResize);
+	}, []);
+	return width;
+}
+
+// ---------------------------
 // Components
 // ---------------------------
 
-// TablePlayers: Displays players around the table with their display name and bid/tricks info.
 function TablePlayers({ players, currentRound, currentPlayerId }) {
 	const numPlayers = players.length;
 	const currentIndex = players.findIndex((p) => p.id === currentPlayerId);
@@ -140,7 +144,6 @@ function TablePlayers({ players, currentRound, currentPlayerId }) {
 	);
 }
 
-// Scoreboard: Displays a table of scores for each player.
 function Scoreboard({ gameState }) {
 	if (!gameState) return null;
 	const maxScore = Math.max(...gameState.players.map((p) => p.score));
@@ -226,8 +229,11 @@ function App() {
 	const [selectedCard, setSelectedCard] = useState(null);
 	const [lastTrick, setLastTrick] = useState(null);
 	const [gameOver, setGameOver] = useState(false);
+	const [showMobileScoreboard, setShowMobileScoreboard] = useState(false);
 
-	// On component mount, check if there's a gameId in the URL.
+	// Use the custom hook once
+	const windowWidth = useWindowWidth();
+
 	useEffect(() => {
 		const path = window.location.pathname;
 		const gameIdFromUrl = path.length > 1 ? path.substring(1) : null;
@@ -237,12 +243,10 @@ function App() {
 		}
 	}, []);
 
-	// Helper to compare two cards by suit and rank.
 	const cardMatches = (a, b) => {
 		return a && b && a.suit === b.suit && a.rank === b.rank;
 	};
 
-	// isMyTurnToBid: returns true if it is this client's turn to bid.
 	const isMyTurnToBid = () => {
 		if (!gameState || !gameState.currentRound) return false;
 		const round = gameState.currentRound;
@@ -252,7 +256,6 @@ function App() {
 		);
 	};
 
-	// Keyboard controls for selecting and playing cards.
 	useEffect(() => {
 		const handleKeyDown = (e) => {
 			if (view !== 'game' || !gameState || gameState.state !== 'playing')
@@ -361,10 +364,7 @@ function App() {
 		const data = await response.json();
 		if (data.state === 'finished') {
 			setGameState(data);
-			// When the game is finished, no need to show turn messages.
 		} else {
-			// If a trick is complete, the backend sets trickOverMessage.
-			// We leave that message for display.
 			if (
 				data.currentRound &&
 				data.currentRound.currentTrick &&
@@ -388,26 +388,17 @@ function App() {
 		}
 	};
 
-	// Compute the turn message on the fly.
-	// If trickOverMessage exists, then display a winning message.
 	const computeTurnMessage = () => {
 		if (!gameState || !gameState.currentRound) return '';
 		const round = gameState.currentRound;
-		if (gameState.trickOverMessage) {
-			// Check if the winner is the current player.
-			if (
-				round.currentTrick &&
-				round.currentTrick.winnerID &&
-				normalizeId(round.currentTrick.winnerID) === normalizeId(playerId)
-			) {
+		if (round.currentTrick && round.currentTrick.winnerID) {
+			if (normalizeId(round.currentTrick.winnerID) === normalizeId(playerId)) {
 				return 'YOU won the trick!';
 			} else {
 				const winner = gameState.players.find(
 					(p) => normalizeId(p.id) === normalizeId(round.currentTrick.winnerID)
 				);
-				return winner
-					? `${winner.displayName} won the trick!`
-					: gameState.trickOverMessage;
+				return winner ? `${winner.displayName} won the trick!` : '';
 			}
 		}
 		if (gameState.state === 'bidding') {
@@ -460,6 +451,27 @@ function App() {
 		return () => clearInterval(interval);
 	}, [gameId]);
 
+	const renderMobileScoreboardToggle = () => (
+		<div
+			className="mobile-scoreboard-toggle"
+			onClick={() => setShowMobileScoreboard(true)}
+		>
+			Score
+		</div>
+	);
+
+	const renderMobileScoreboard = () => (
+		<div className="mobile-scoreboard">
+			<button
+				className="mobile-scoreboard-close"
+				onClick={() => setShowMobileScoreboard(false)}
+			>
+				Close
+			</button>
+			<Scoreboard gameState={gameState} />
+		</div>
+	);
+
 	const renderHandCard = (card, index) => {
 		return (
 			<div
@@ -473,9 +485,7 @@ function App() {
 					e.dataTransfer.setData('text/plain', JSON.stringify(card));
 					e.dataTransfer.effectAllowed = 'move';
 				}}
-				onDragEnd={() => {
-					// Optionally clear selection if drag is cancelled.
-				}}
+				onDragEnd={() => {}}
 				onClick={() => {
 					if (gameState && gameState.state === 'playing') {
 						setSelectedCard(
@@ -560,7 +570,12 @@ function App() {
 						<p>{turnMessage}</p>
 					</div>
 				</div>
-				{/* Table drop zone */}
+				{windowWidth < 768 && (
+					<div className="mobile-scoreboard-container">
+						{renderMobileScoreboardToggle()}
+					</div>
+				)}
+				{showMobileScoreboard && renderMobileScoreboard()}
 				<div
 					className="table-container"
 					onDragOver={(e) => {
@@ -598,14 +613,22 @@ function App() {
 				</div>
 				{gameState &&
 					gameState.state === 'bidding' &&
-					!gameState.currentRound.bids[playerId] && (
+					!gameState.currentRound.bids[playerId] &&
+					(windowWidth < 768 ? (
+						<div className="bid-modal-container">
+							<BidModal
+								onPlaceBid={handlePlaceBid}
+								isMyTurn={isMyTurnToBid()}
+								maxBid={gameState.currentRound.totalCards}
+							/>
+						</div>
+					) : (
 						<BidModal
 							onPlaceBid={handlePlaceBid}
 							isMyTurn={isMyTurnToBid()}
 							maxBid={gameState.currentRound.totalCards}
 						/>
-					)}
-				{/* "Play Card" button */}
+					))}
 				{selectedCard && (
 					<div className="play-card-section">
 						<button
