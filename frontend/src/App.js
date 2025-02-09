@@ -2,16 +2,18 @@ import React, { useState, useEffect } from 'react';
 import BidModal from './BidModal'; // Import the vertical bidding modal component
 import './App.css';
 
-// Set the backend API URL. When running locally you might use localhost,
-// but here we're using the Cloud Run URL.
+// Set the backend API URL.
 const API_URL = 'https://upanddownbackend-755936114859.us-central1.run.app';
 
 // ---------------------------
 // Helper Functions
 // ---------------------------
 
+// normalizeId: Trims and lowercases an id string for robust comparisons.
+const normalizeId = (id) => (id || '').trim().toLowerCase();
+
 // formatCard: Formats a card object into a styled JSX element.
-// With the new structure, a card with rank > 14 is a joker.
+// With the new structure, any card with rank > 14 is considered a joker.
 const formatCard = (card) => {
 	if (card.rank > 14) {
 		// Joker: rank 16 is Joker 1, rank 15 is Joker 2.
@@ -70,8 +72,8 @@ const formatCard = (card) => {
 	);
 };
 
-// sortHand: Takes an array of card objects and returns a new array sorted by suit
-// (using the order: diamonds, clubs, hearts, spades) and then by rank in ascending order.
+// sortHand: Returns a new array sorted by suit (order: diamonds, clubs, hearts, spades)
+// and then by rank in ascending order.
 const sortHand = (hand) => {
 	const suitOrder = { diamonds: 1, clubs: 2, hearts: 3, spades: 4 };
 	return hand.slice().sort((a, b) => {
@@ -88,7 +90,7 @@ const sortHand = (hand) => {
 // Components
 // ---------------------------
 
-// TablePlayers: Displays the players around the table with their display name and bid/tricks info.
+// TablePlayers: Displays players around the table with their display name and bid/tricks info.
 function TablePlayers({ players, currentRound, currentPlayerId }) {
 	const numPlayers = players.length;
 	const currentIndex = players.findIndex((p) => p.id === currentPlayerId);
@@ -215,7 +217,6 @@ function Scoreboard({ gameState }) {
 // Main App Component
 // ---------------------------
 function App() {
-	// State declarations.
 	const [view, setView] = useState('home');
 	const [gameId, setGameId] = useState('');
 	const [playerId, setPlayerId] = useState('');
@@ -224,7 +225,6 @@ function App() {
 	const [gameState, setGameState] = useState(null);
 	const [selectedCard, setSelectedCard] = useState(null);
 	const [lastTrick, setLastTrick] = useState(null);
-	const [actionMessage, setActionMessage] = useState('');
 	const [gameOver, setGameOver] = useState(false);
 
 	// On component mount, check if there's a gameId in the URL.
@@ -237,9 +237,19 @@ function App() {
 		}
 	}, []);
 
-	// Helper to compare two card objects (using only suit and rank).
+	// Helper to compare two cards by suit and rank.
 	const cardMatches = (a, b) => {
 		return a && b && a.suit === b.suit && a.rank === b.rank;
+	};
+
+	// isMyTurnToBid: returns true if it is this client's turn to bid.
+	const isMyTurnToBid = () => {
+		if (!gameState || !gameState.currentRound) return false;
+		const round = gameState.currentRound;
+		return (
+			normalizeId(round.bidOrder[round.currentBidTurn]) ===
+			normalizeId(playerId)
+		);
 	};
 
 	// Keyboard controls for selecting and playing cards.
@@ -247,7 +257,9 @@ function App() {
 		const handleKeyDown = (e) => {
 			if (view !== 'game' || !gameState || gameState.state !== 'playing')
 				return;
-			const me = gameState.players.find((p) => p.id === playerId);
+			const me = gameState.players.find(
+				(p) => normalizeId(p.id) === normalizeId(playerId)
+			);
 			if (!me || !me.hand || me.hand.length === 0) return;
 			const sortedHand = sortHand(me.hand);
 			if (e.key >= '1' && e.key <= String(sortedHand.length)) {
@@ -284,7 +296,6 @@ function App() {
 		return () => window.removeEventListener('keydown', handleKeyDown);
 	}, [view, gameState, playerId, selectedCard]);
 
-	// Create a new game.
 	const createGame = async () => {
 		const response = await fetch(`${API_URL}/games/create`, {
 			method: 'POST',
@@ -297,7 +308,6 @@ function App() {
 		setView('lobby');
 	};
 
-	// Join an existing game.
 	const joinGame = async () => {
 		if (!gameId || !displayName) {
 			console.error('Game ID or display name is missing.');
@@ -313,7 +323,6 @@ function App() {
 		setView('lobby');
 	};
 
-	// Start the game.
 	const startGame = async () => {
 		await fetch(`${API_URL}/games/start`, {
 			method: 'POST',
@@ -323,7 +332,6 @@ function App() {
 		fetchGameState();
 	};
 
-	// Handle placing a bid.
 	const handlePlaceBid = async (bidValue) => {
 		await fetch(`${API_URL}/games/bid`, {
 			method: 'POST',
@@ -333,7 +341,6 @@ function App() {
 		fetchGameState();
 	};
 
-	// Play the selected card.
 	const playSelectedCard = async () => {
 		if (!selectedCard) return;
 		await fetch(`${API_URL}/games/play`, {
@@ -344,7 +351,6 @@ function App() {
 		setSelectedCard(null);
 	};
 
-	// Fetch the current game state.
 	const fetchGameState = async () => {
 		const response = await fetch(`${API_URL}/games/state?gameId=${gameId}`);
 		if (!response.ok) {
@@ -355,21 +361,20 @@ function App() {
 		const data = await response.json();
 		if (data.state === 'finished') {
 			setGameState(data);
-			setGameOver(true);
+			// When the game is finished, no need to show turn messages.
 		} else {
+			// If a trick is complete, the backend sets trickOverMessage.
+			// We leave that message for display.
 			if (
 				data.currentRound &&
 				data.currentRound.currentTrick &&
 				data.currentRound.currentTrick.plays.length === data.players.length &&
 				data.currentRound.currentTrick.winnerID
 			) {
-				if (!lastTrick) {
-					setLastTrick(data.currentRound.currentTrick);
-					setTimeout(() => {
-						setGameState(data);
-						setLastTrick(null);
-					}, 2000);
-				}
+				setTimeout(() => {
+					setGameState(data);
+					setLastTrick(null);
+				}, 2000);
 			} else {
 				setGameState(data);
 			}
@@ -381,59 +386,62 @@ function App() {
 				setView('game');
 			}
 		}
-		updateTurnMessages(data);
 	};
 
-	// Update the UI action message.
-	const updateTurnMessages = (data) => {
-		if (!data || !data.currentRound) {
-			setActionMessage('');
-			return;
-		}
-		if (data.trickOverMessage) {
-			setActionMessage(data.trickOverMessage);
-			return;
-		}
-		if (data.state === 'bidding') {
-			const round = data.currentRound;
-			const currentBidderId = round.bidOrder[round.currentBidTurn];
-			if (currentBidderId === playerId) {
-				setActionMessage('YOUR TURN to bid');
-			} else {
-				const currentBidder = data.players.find(
-					(p) => p.id === currentBidderId
-				);
-				if (currentBidder) {
-					setActionMessage(`Waiting for ${currentBidder.displayName} to bid`);
-				} else {
-					setActionMessage('');
-				}
-			}
-		} else if (data.state === 'playing') {
-			const round = data.currentRound;
+	// Compute the turn message on the fly.
+	// If trickOverMessage exists, then display a winning message.
+	const computeTurnMessage = () => {
+		if (!gameState || !gameState.currentRound) return '';
+		const round = gameState.currentRound;
+		if (gameState.trickOverMessage) {
+			// Check if the winner is the current player.
 			if (
 				round.currentTrick &&
-				round.currentTrick.plays.length < data.players.length
+				round.currentTrick.winnerID &&
+				normalizeId(round.currentTrick.winnerID) === normalizeId(playerId)
+			) {
+				return 'YOU won the trick!';
+			} else {
+				const winner = gameState.players.find(
+					(p) => normalizeId(p.id) === normalizeId(round.currentTrick.winnerID)
+				);
+				return winner
+					? `${winner.displayName} won the trick!`
+					: gameState.trickOverMessage;
+			}
+		}
+		if (gameState.state === 'bidding') {
+			const currentBidderId = round.bidOrder[round.currentBidTurn];
+			if (normalizeId(currentBidderId) === normalizeId(playerId)) {
+				return 'YOUR TURN to bid';
+			} else {
+				const currentBidder = gameState.players.find(
+					(p) => normalizeId(p.id) === normalizeId(currentBidderId)
+				);
+				return currentBidder
+					? `Waiting for ${currentBidder.displayName} to bid`
+					: '';
+			}
+		} else if (gameState.state === 'playing') {
+			if (
+				round.currentTrick &&
+				round.currentTrick.plays.length < gameState.players.length
 			) {
 				const currentPlayerIndex =
-					(round.trickLeader + round.trickTurnIndex) % data.players.length;
-				const currentPlayer = data.players[currentPlayerIndex];
-				if (currentPlayer.id === playerId) {
-					setActionMessage('YOUR TURN to play a card');
+					(round.trickLeader + round.trickTurnIndex) % gameState.players.length;
+				const currentPlayer = gameState.players[currentPlayerIndex];
+				if (normalizeId(currentPlayer.id) === normalizeId(playerId)) {
+					return 'YOUR TURN to play a card';
 				} else {
-					setActionMessage(
-						`Waiting for ${currentPlayer.displayName} to play a card`
-					);
+					return currentPlayer
+						? `Waiting for ${currentPlayer.displayName} to play a card`
+						: '';
 				}
-			} else {
-				setActionMessage('');
 			}
-		} else {
-			setActionMessage('');
 		}
+		return '';
 	};
 
-	// Reset the game.
 	const resetGame = async () => {
 		await fetch(`${API_URL}/games/reset`, {
 			method: 'POST',
@@ -445,7 +453,6 @@ function App() {
 		}, 500);
 	};
 
-	// Poll for game state updates every 2 seconds.
 	useEffect(() => {
 		const interval = setInterval(() => {
 			if (gameId) fetchGameState();
@@ -453,14 +460,6 @@ function App() {
 		return () => clearInterval(interval);
 	}, [gameId]);
 
-	// isMyTurnToBid: Check if it is the current player's turn to bid.
-	const isMyTurnToBid = () => {
-		if (!gameState || !gameState.currentRound) return false;
-		const round = gameState.currentRound;
-		return round.bidOrder[round.currentBidTurn] === playerId;
-	};
-
-	// Updated renderHandCard with drag support.
 	const renderHandCard = (card, index) => {
 		return (
 			<div
@@ -490,7 +489,6 @@ function App() {
 		);
 	};
 
-	// Render the current trick cards on the table.
 	const renderCurrentTrick = (round) => {
 		if (!round || !round.currentTrick) return null;
 		const trickToShow = lastTrick || round.currentTrick;
@@ -518,12 +516,14 @@ function App() {
 		);
 	};
 
-	// Render the main game board.
 	const renderGameBoard = () => {
 		if (!gameState) return <div>Loading game state...</div>;
-		const me = gameState.players.find((p) => p.id === playerId);
+		const me = gameState.players.find(
+			(p) => normalizeId(p.id) === normalizeId(playerId)
+		);
 		const round = gameState.currentRound;
 		const sortedHand = me && me.hand ? sortHand(me.hand) : [];
+		const turnMessage = computeTurnMessage();
 		return (
 			<div className="game-board">
 				{gameState.state === 'finished' && (
@@ -557,7 +557,7 @@ function App() {
 				)}
 				<div className="top-section">
 					<div className="action-message">
-						<p>{gameState.state === 'finished' ? '' : actionMessage}</p>
+						<p>{turnMessage}</p>
 					</div>
 				</div>
 				{/* Table drop zone */}
@@ -643,7 +643,6 @@ function App() {
 		);
 	};
 
-	// Render different views.
 	if (view === 'home') {
 		return (
 			<div className="App">
