@@ -511,7 +511,7 @@ function App() {
 		return round.bidOrder[round.currentBidTurn] === playerId;
 	};
 
-	// Render a card from the player's hand. The card is clickable when it's the playing phase.
+	// Updated renderHandCard with drag support.
 	const renderHandCard = (card, index) => {
 		return (
 			<div
@@ -524,9 +524,23 @@ function App() {
 						? 'selected'
 						: ''
 				}`}
+				// Make the card draggable.
+				draggable="true"
+				onDragStart={(e) => {
+					// Mark this card as selected when dragging starts.
+					setSelectedCard(card);
+					// Optionally, you can attach data to the drag event if needed.
+					e.dataTransfer.setData('text/plain', JSON.stringify(card));
+					e.dataTransfer.effectAllowed = 'move';
+				}}
+				// Optionally, clear selection if the drag is cancelled.
+				onDragEnd={() => {
+					// You might want to clear the selection if the card wasn’t dropped on a valid drop zone.
+					// setSelectedCard(null);
+				}}
 				onClick={() => {
 					if (gameState && gameState.state === 'playing') {
-						// Toggle selection: if already selected, unselect; otherwise, select this card.
+						// Toggle selection on click (existing logic)
 						setSelectedCard(
 							selectedCard &&
 								selectedCard.isJoker === card.isJoker &&
@@ -538,9 +552,7 @@ function App() {
 					}
 				}}
 			>
-				<div className="card-content">
-					{card.isJoker ? formatCard(card) : formatCard(card)}
-				</div>
+				<div className="card-content">{formatCard(card)}</div>
 			</div>
 		);
 	};
@@ -579,17 +591,14 @@ function App() {
 		);
 	};
 
-	// Render the main game board.
+	// In renderGameBoard, update the table container to act as a drop zone.
 	const renderGameBoard = () => {
 		if (!gameState) return <div>Loading game state...</div>;
-		// 'me' represents the local player.
 		const me = gameState.players.find((p) => p.id === playerId);
 		const round = gameState.currentRound;
-		// Sort the player's hand for display.
 		const sortedHand = me && me.hand ? sortHand(me.hand) : [];
 		return (
 			<div className="game-board">
-				{/* If the game is finished, display game over summary */}
 				{gameState.state === 'finished' && (
 					<div className="game-over-summary">
 						<h1>GAME OVER</h1>
@@ -620,13 +629,26 @@ function App() {
 					</div>
 				)}
 				<div className="top-section">
-					{/* Display the current action message (e.g., whose turn it is, or trick win message) */}
 					<div className="action-message">
 						<p>{gameState.state === 'finished' ? '' : actionMessage}</p>
 					</div>
 				</div>
-				{/* Table container holds the central oval table with trick cards and players */}
-				<div className="table-container">
+				{/* Updated table container to support dropping a card */}
+				<div
+					className="table-container"
+					onDragOver={(e) => {
+						// Prevent default to allow a drop.
+						e.preventDefault();
+						e.dataTransfer.dropEffect = 'move';
+					}}
+					onDrop={(e) => {
+						e.preventDefault();
+						// When a card is dropped on the table container, attempt to play it.
+						if (selectedCard && gameState.state === 'playing') {
+							playSelectedCard();
+						}
+					}}
+				>
 					<div className="table-oval">
 						{round &&
 							round.currentTrick &&
@@ -649,7 +671,6 @@ function App() {
 						</div>
 					)}
 				</div>
-				{/* Show the vertical BidModal during bidding phase if the current player hasn't bid yet */}
 				{gameState &&
 					gameState.state === 'bidding' &&
 					!gameState.currentRound.bids[playerId] && (
@@ -659,7 +680,7 @@ function App() {
 							maxBid={gameState.currentRound.totalCards}
 						/>
 					)}
-				{/* When a card is selected in the playing phase, show the Play Card button */}
+				{/* Optionally, you can still show the "Play Card" button if a card is selected */}
 				{selectedCard && (
 					<div className="play-card-section">
 						<button
