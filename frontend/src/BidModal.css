@@ -3,14 +3,15 @@
 	display: flex;
 	flex-direction: column;
 	align-items: center;
-	position: absolute;
-	bottom: 160px; /* Moves it above the hand */
-	right: 20px; /* Moves it to the bottom-right */
+	/* Fixed positioning so the modal is always on the right side above the hand */
+	position: fixed;
+	bottom: 160px; /* For desktop view – sits above the hand container */
+	right: 10px; /* Fixed at the right edge */
 	padding: 10px;
-	border: 2px solid #006400; /* Dark green border */
+	border: 2px solid #006400;
 	border-radius: 8px;
-	background-color: #006400; /* Restored green color */
-	width: 80px; /* Keeping it compact */
+	background-color: #006400;
+	width: 80px;
 	text-align: center;
 	box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.2);
 	z-index: 10;
@@ -48,10 +49,36 @@
 	padding: 6px;
 	font-size: 1em;
 	cursor: pointer;
-	background-color: #2a4d2e; /* Darker green */
+	background-color: #2a4d2e;
 	border: none;
 	border-radius: 5px;
 	color: white;
 	width: 100%;
 	font-weight: bold;
+}
+
+/* Mobile-specific adjustments for the bid modal */
+@media (max-width: 768px) {
+	.bid-modal {
+		width: 100px;
+		padding: 10px;
+		/* Adjust bottom offset so it sits right above the smaller hand container */
+		bottom: 100px;
+		right: 10px;
+		position: fixed;
+	}
+	.arrow-button {
+		font-size: 1.2em;
+		margin: 2px 0;
+	}
+	.bid-number {
+		font-size: 1.2em;
+		margin: 3px 0;
+		width: 60px;
+		padding: 4px;
+	}
+	.place-bid-button {
+		padding: 4px;
+		font-size: 0.9em;
+	}
 }
