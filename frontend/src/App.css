@@ -350,13 +350,13 @@ input[type='number'] {
 		display: none;
 	}
 
-	/* Use full width for main content with extra bottom padding */
+	/* Use full width for main content with extra bottom padding (using relative units) */
 	.main-content {
 		margin-left: 0;
-		padding: 10px 10px 140px 10px;
+		padding: 2vh 2vw 20vh 2vw;
 	}
 
-	/* Adjust hand container for mobile: fixed at bottom with reduced height */
+	/* Adjust hand container for mobile: fixed at bottom with relative height and fixed padding */
 	.hand-container {
 		position: fixed;
 		bottom: 0;
@@ -364,8 +364,8 @@ input[type='number'] {
 		right: 0;
 		background: #006400;
 		color: #000;
-		padding: 10px;
-		height: 90px;
+		padding: 10px; /* fixed padding */
+		height: 15vh;
 		display: flex;
 		justify-content: center;
 		align-items: center;
@@ -373,11 +373,11 @@ input[type='number'] {
 		overflow-x: auto;
 	}
 
-	/* Adjust table container (oval) for mobile and add extra top margin so game messages don’t overlap player names */
+	/* Adjust table container (oval) for mobile with relative sizing and increased top margin */
 	.table-container {
 		width: 100%;
-		height: 250px;
-		margin: 60px 0 10px 0;
+		height: 40vh;
+		margin: 10vh 0 2vh 0; /* increased top margin from 5vh to 10vh */
 	}
 	.table-oval {
 		width: 100%;
@@ -385,10 +385,12 @@ input[type='number'] {
 		margin: 0 auto;
 	}
 
-	/* Reduce font sizes for smaller screens */
+	/* Responsive font sizes for game messages */
 	.action-message {
-		font-size: 16px;
+		font-size: 3vw;
 	}
+
+	/* Revert hand card dimensions to fixed pixel values as before */
 	.hand-card {
 		width: 50px;
 		height: 70px;
@@ -398,26 +400,32 @@ input[type='number'] {
 		font-size: 20px;
 	}
 
-	/* Mobile scoreboard overlay: full-screen overlay, scrollable if content exceeds available space,
-	   and with no horizontal padding */
+	/* Mobile scoreboard overlay: full-screen overlay that fills the screen edge-to-edge */
 	.mobile-scoreboard {
 		position: fixed;
 		top: 0;
 		left: 0;
-		width: 100%;
-		height: 100%;
+		width: 100vw;
+		height: 100vh;
 		background: rgba(0, 0, 0, 0.8);
 		color: white;
 		z-index: 200;
 		overflow: auto;
-		padding: 20px 0;
+		padding: 2vh 2vw;
 	}
 
 	/* Force table headers in the mobile scoreboard to appear as on desktop */
 	.mobile-scoreboard table th {
 		background-color: white;
 		color: black;
-		padding: 4px;
+		padding: 1vh 1vw;
+	}
+
+	/* NEW: Ensure table, rows, and cells inside the mobile scoreboard have a white background */
+	.mobile-scoreboard table,
+	.mobile-scoreboard table tr,
+	.mobile-scoreboard table td {
+		background-color: white;
 	}
 
 	/* Ensure the game messages (.top-section) appear above the table players */
@@ -445,11 +453,11 @@ input[type='number'] {
 	position: fixed;
 	top: 0;
 	left: 0;
-	width: 100%;
-	height: 100%;
+	width: 100vw;
+	height: 100vh;
 	background: rgba(0, 0, 0, 0.8);
 	color: white;
 	z-index: 200;
 	overflow: auto;
-	padding: 20px 0;
+	padding: 2vh 2vw;
 }
