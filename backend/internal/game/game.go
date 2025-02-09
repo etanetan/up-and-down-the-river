@@ -38,14 +38,18 @@ const (
 	Queen Rank = 12
 	King  Rank = 13
 	Ace   Rank = 14
+	// For this game, the jokers are treated as spades.
+	// Joker2 is lower than Joker1.
+	Joker2 Rank = 15
+	Joker1 Rank = 16
 )
 
 // Card represents a playing card.
+// For normal cards, Suit is one of "hearts", "diamonds", "clubs", or "spades".
+// The two jokers are added as cards with Suit "spades" and special rank values.
 type Card struct {
-	Suit      string `json:"suit"`      // e.g. "hearts", "spades", etc.
-	Rank      int    `json:"rank"`      // 2–14 (Ace is high)
-	IsJoker   bool   `json:"isJoker"`   // true if joker
-	JokerName string `json:"jokerName"` // "J1" or "J2"
+	Suit string `json:"suit"`
+	Rank int    `json:"rank"`
 }
 
 // Player represents a game participant.
@@ -90,9 +94,9 @@ type Round struct {
 
 // RoundResult holds results for a round.
 type RoundResult struct {
-	RoundNumber int                  `json:"roundNumber"`
-	TotalCards  int                  `json:"totalCards"`
-	Results     []PlayerRoundResult  `json:"results"`
+	RoundNumber int                 `json:"roundNumber"`
+	TotalCards  int                 `json:"totalCards"`
+	Results     []PlayerRoundResult `json:"results"`
 }
 
 // PlayerRoundResult holds a player’s result for a round.
@@ -105,15 +109,15 @@ type PlayerRoundResult struct {
 
 // Game represents the overall game state.
 type Game struct {
-	ID                string            `json:"id"`
-	Players           []*Player         `json:"players"`
-	State             string            `json:"state"` // "lobby", "bidding", "playing", "scoring", "finished"
-	CurrentRound      *Round            `json:"currentRound"`
-	RoundSequence     []int             `json:"roundSequence"`
-	CurrentRoundIndex int               `json:"currentRoundIndex"`
-	CreatorMaxCards   int               `json:"creatorMaxCards"`
-	RoundResults      []RoundResult     `json:"roundResults"`
-	TrickOverMessage  string            `json:"trickOverMessage,omitempty"`
+	ID                string         `json:"id"`
+	Players           []*Player      `json:"players"`
+	State             string         `json:"state"` // "lobby", "bidding", "playing", "scoring", "finished"
+	CurrentRound      *Round         `json:"currentRound"`
+	RoundSequence     []int          `json:"roundSequence"`
+	CurrentRoundIndex int            `json:"currentRoundIndex"`
+	CreatorMaxCards   int            `json:"creatorMaxCards"`
+	RoundResults      []RoundResult  `json:"roundResults"`
+	TrickOverMessage  string         `json:"trickOverMessage,omitempty"`
 }
 
 // Global games map and its mutex.
@@ -122,21 +126,24 @@ var (
 	GamesMu sync.Mutex
 )
 
-// CreateDeck returns a standard deck (52 cards plus 2 jokers).
+// CreateDeck returns a standard deck of 54 cards.
+// Four suits have 13 cards each (ranks 2–Ace) and then two jokers are added,
+// which are considered spades with special ranks.
 func CreateDeck() []Card {
 	var deck []Card
 	suits := []string{"hearts", "diamonds", "clubs", "spades"}
 	for _, s := range suits {
 		for rank := 2; rank <= 14; rank++ {
 			deck = append(deck, Card{
-				Suit:    s,
-				Rank:    rank,
-				IsJoker: false,
+				Suit: s,
+				Rank: rank,
 			})
 		}
 	}
-	deck = append(deck, Card{Suit: "spades", IsJoker: true, JokerName: "J1"})
-	deck = append(deck, Card{Suit: "spades", IsJoker: true, JokerName: "J2"})
+	// Append two jokers.
+	// They are considered spades. Joker1 is the highest card.
+	deck = append(deck, Card{Suit: "spades", Rank: 15})
+	deck = append(deck, Card{Suit: "spades", Rank: 16})
 	return deck
 }
 
@@ -163,26 +170,13 @@ func DealCards(deck []Card, players []*Player, cardsPerPlayer int) error {
 }
 
 // IsTrump returns true if the card is trump.
+// In this game, trump cards are those with suit "spades" (which includes the jokers).
 func IsTrump(c Card) bool {
-	return c.IsJoker || strings.ToLower(c.Suit) == "spades"
+	return strings.ToLower(c.Suit) == "spades"
 }
 
-// CompareTrump compares two trump cards.
+// CompareTrump compares two trump cards by their rank.
 func CompareTrump(c1, c2 Card) int {
-	if c1.IsJoker && c2.IsJoker {
-		if c1.JokerName == "J1" && c2.JokerName == "J2" {
-			return 1
-		} else if c1.JokerName == "J2" && c2.JokerName == "J1" {
-			return -1
-		}
-		return 0
-	}
-	if c1.IsJoker {
-		return 1
-	}
-	if c2.IsJoker {
-		return -1
-	}
 	if c1.Rank > c2.Rank {
 		return 1
 	} else if c1.Rank < c2.Rank {
@@ -192,6 +186,7 @@ func CompareTrump(c1, c2 Card) int {
 }
 
 // CompareCards compares two cards given the lead suit.
+// Returns 1 if c1 wins over c2, -1 if c2 wins over c1, or 0 if they are equal.
 func CompareCards(c1, c2 Card, leadSuit string) int {
 	c1Trump := IsTrump(c1)
 	c2Trump := IsTrump(c2)
@@ -242,11 +237,5 @@ func FindPlayer(g *Game, playerID string) (*Player, int) {
 
 // CardEquals checks whether two cards are equal.
 func CardEquals(a, b Card) bool {
-	if a.IsJoker != b.IsJoker {
-		return false
-	}
-	if a.IsJoker {
-		return a.JokerName == b.JokerName
-	}
 	return strings.ToLower(a.Suit) == strings.ToLower(b.Suit) && a.Rank == b.Rank
 }

@@ -1,100 +1,84 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import './BidModal.css';
 
 /**
  * BidModal Component
  *
- * This component renders a vertical bidding modal. It includes:
- * - An "up" arrow to increment the bid.
- * - A numeric input displaying the current bid, which starts at 0.
- *   - When the input is focused for the first time, it clears the default 0.
- * - A "down" arrow to decrement the bid (the value will never go below 0).
- * - A "Place Bid" button that submits the bid.
+ * A compact, vertical bidding modal that allows users to adjust their bid using
+ * up/down arrows and keyboard input.
  *
  * Props:
- * - onPlaceBid: Callback function to call when the bid is placed.
- * - isMyTurn: Boolean indicating whether it is the local player's turn to bid.
+ * - onPlaceBid: Function to call when the bid is placed.
+ * - isMyTurn: Boolean indicating whether it's the player's turn to bid.
+ * - maxBid: Maximum bid allowed (should be equal to the number of cards the player has).
  */
-function BidModal({ onPlaceBid, isMyTurn }) {
-	// Local state for the bid value.
+function BidModal({ onPlaceBid, isMyTurn, maxBid }) {
 	const [bid, setBid] = useState(0);
-	// Flag to check if the input has been cleared at least once.
-	const [inputCleared, setInputCleared] = useState(false);
 
-	// Increments the bid value by 1.
+	// Increase bid (caps at maxBid)
 	const incrementBid = () => {
-		setBid((prev) => prev + 1);
-		setInputCleared(true);
+		if (isMyTurn) setBid((prev) => Math.min(prev + 1, maxBid));
 	};
 
-	// Decrements the bid value by 1 but not below 0.
+	// Decrease bid (ensures it never goes below 0)
 	const decrementBid = () => {
-		setBid((prev) => Math.max(prev - 1, 0));
-		setInputCleared(true);
+		if (isMyTurn) setBid((prev) => Math.max(prev - 1, 0));
 	};
 
-	// Handles changes in the input field.
-	const handleInputChange = (e) => {
-		const value = e.target.value;
-		if (value === '') {
-			setBid(0);
-		} else {
-			const parsed = parseInt(value, 10);
-			if (!isNaN(parsed)) {
-				setBid(Math.max(parsed, 0));
-			}
-		}
-	};
-
-	// When the input is focused for the first time, clear the default value.
-	const handleInputFocus = () => {
-		if (!inputCleared) {
-			setBid(0);
-			setInputCleared(true);
-		}
-	};
-
-	// Calls the onPlaceBid prop with the current bid value.
+	// Handle placing the bid
 	const handlePlaceBid = () => {
-		onPlaceBid(bid);
+		if (isMyTurn) onPlaceBid(bid);
 	};
+
+	// Handle keyboard input (including Enter to submit bid)
+	useEffect(() => {
+		const handleKeyDown = (e) => {
+			if (!isMyTurn) return;
+
+			if (e.key === 'ArrowUp') {
+				incrementBid();
+			} else if (e.key === 'ArrowDown') {
+				decrementBid();
+			} else if (e.key >= '0' && e.key <= '9') {
+				const newBid = parseInt(e.key);
+				setBid((prev) => {
+					const updatedBid = prev === 0 ? newBid : parseInt(`${prev}${newBid}`);
+					return Math.min(updatedBid, maxBid); // Ensure it doesn't exceed maxBid
+				});
+			} else if (e.key === 'Backspace') {
+				setBid((prev) => Math.floor(prev / 10)); // Remove last digit
+			} else if (e.key === 'Enter' || e.key === 'Return') {
+				handlePlaceBid(); // Submit bid when Enter is pressed
+			}
+		};
+
+		window.addEventListener('keydown', handleKeyDown);
+		return () => window.removeEventListener('keydown', handleKeyDown);
+	}, [isMyTurn, bid, maxBid]); // Ensure it updates dynamically
 
 	return (
 		<div className="bid-modal">
-			<h2 className="bid-header">Bid</h2>
-			{/* Up arrow button increases bid */}
 			<button
-				className="arrow-button up-arrow"
+				className="arrow-button"
 				onClick={incrementBid}
 				disabled={!isMyTurn}
 			>
 				▲
 			</button>
-			{/* Numeric input for bid; clears default 0 on focus */}
-			<input
-				type="number"
-				className="bid-input"
-				value={bid}
-				onChange={handleInputChange}
-				onFocus={handleInputFocus}
-				min="0"
-				disabled={!isMyTurn}
-			/>
-			{/* Down arrow button decreases bid */}
+			<div className="bid-number">{bid}</div>
 			<button
-				className="arrow-button down-arrow"
+				className="arrow-button"
 				onClick={decrementBid}
 				disabled={!isMyTurn}
 			>
 				▼
 			</button>
-			{/* Place Bid button */}
 			<button
 				className="place-bid-button"
 				onClick={handlePlaceBid}
 				disabled={!isMyTurn}
 			>
-				Place Bid
+				Bid
 			</button>
 		</div>
 	);
