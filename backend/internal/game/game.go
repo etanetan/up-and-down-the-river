@@ -142,8 +142,8 @@ func CreateDeck() []Card {
 	}
 	// Append two jokers.
 	// They are considered spades. Joker1 is the highest card.
-	deck = append(deck, Card{Suit: "spades", Rank: int(Joker2)})
-	deck = append(deck, Card{Suit: "spades", Rank: int(Joker1)})
+	deck = append(deck, Card{Suit: "spades", Rank: 15})
+	deck = append(deck, Card{Suit: "spades", Rank: 16})
 	return deck
 }
 
