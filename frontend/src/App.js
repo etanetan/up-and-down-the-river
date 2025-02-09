@@ -11,12 +11,14 @@ const API_URL = 'https://upanddownbackend-755936114859.us-central1.run.app';
 // ---------------------------
 
 // formatCard: Formats a card object into a styled JSX element.
-// If the card is a Joker, display the joker name in bold; otherwise, display the rank and suit.
+// With the new structure, a card with rank > 14 is a joker.
 const formatCard = (card) => {
-	if (card.isJoker) {
+	if (card.rank > 14) {
+		// Joker: rank 16 is Joker 1, rank 15 is Joker 2.
+		const jokerName = card.rank === 16 ? 'J1' : 'J2';
 		return (
 			<span style={{ color: 'black', fontSize: '24px', fontWeight: 'bold' }}>
-				{card.jokerName}
+				{jokerName}
 			</span>
 		);
 	}
@@ -87,14 +89,10 @@ const sortHand = (hand) => {
 // ---------------------------
 
 // TablePlayers: Displays the players around the table with their display name and bid/tricks info.
-// It calculates a rotation angle so that the current player's information appears at the bottom.
 function TablePlayers({ players, currentRound, currentPlayerId }) {
 	const numPlayers = players.length;
-	// Find the index of the current player so we can rotate the layout accordingly.
 	const currentIndex = players.findIndex((p) => p.id === currentPlayerId);
-	// Compute the offset to set the current player's angle to 90° (bottom center).
 	const offset = 90 - (360 / numPlayers) * currentIndex;
-	// Map over players to compute each player's angle.
 	const playersWithAngle = players.map((player, i) => {
 		const angle = (360 / numPlayers) * i + offset;
 		return { ...player, angle };
@@ -102,17 +100,13 @@ function TablePlayers({ players, currentRound, currentPlayerId }) {
 	return (
 		<div className="table-players">
 			{playersWithAngle.map((player) => {
-				// Convert the angle from degrees to radians for the trigonometric functions.
 				const angleRad = (player.angle * Math.PI) / 180;
-				// Set radii for positioning the players further from the table's center.
-				const radiusX = 220; // Horizontal radius
-				const radiusY = 160; // Vertical radius
+				const radiusX = 220;
+				const radiusY = 160;
 				const x = radiusX * Math.cos(angleRad);
 				const y = radiusY * Math.sin(angleRad);
-				// Convert the x and y coordinates to percentages relative to the table container.
 				const left = 50 + (x / 400) * 100;
 				const top = 50 + (y / 300) * 100;
-				// Determine the bid for display. If no bid exists, display a hyphen.
 				const bid =
 					currentRound &&
 					currentRound.bids &&
@@ -125,15 +119,12 @@ function TablePlayers({ players, currentRound, currentPlayerId }) {
 						className="table-player"
 						style={{ left: `${left}%`, top: `${top}%` }}
 					>
-						{/* Display the player's name and a combined view of tricks won and their bid.
-                Format: "PlayerName (tricksWon/bid)" */}
 						<div className="table-player-info">
 							{player.displayName}{' '}
 							<span className="table-player-bid">
 								({player.tricksWon || 0}/{bid})
 							</span>
 						</div>
-						{/* Display a dealer chip ("D") if this player is the dealer */}
 						{currentRound &&
 							currentRound.dealerIndex !== undefined &&
 							players[currentRound.dealerIndex] &&
@@ -188,7 +179,6 @@ function Scoreboard({ gameState }) {
 								})}
 							</tr>
 						))}
-					{/* Show pending round bids if game state is not finished */}
 					{gameState.currentRound && gameState.state !== 'finished' && (
 						<tr className="pending-round">
 							<td>{gameState.currentRound.totalCards}</td>
@@ -224,17 +214,8 @@ function Scoreboard({ gameState }) {
 // ---------------------------
 // Main App Component
 // ---------------------------
-
 function App() {
-	// Maintain various pieces of state:
-	// view: current view ("home", "join", "lobby", or "game")
-	// gameId, playerId, displayName: identifiers and name information
-	// creatorMaxCards: maximum number of cards (set by game creator)
-	// gameState: the current game state fetched from the backend
-	// selectedCard: currently selected card (if any)
-	// lastTrick: holds the most recent trick (used for animations or delayed updates)
-	// actionMessage: a message for the UI (e.g., whose turn it is or who won the trick)
-	// gameOver: flag for game completion
+	// State declarations.
 	const [view, setView] = useState('home');
 	const [gameId, setGameId] = useState('');
 	const [playerId, setPlayerId] = useState('');
@@ -247,7 +228,6 @@ function App() {
 	const [gameOver, setGameOver] = useState(false);
 
 	// On component mount, check if there's a gameId in the URL.
-	// If so, set the gameId and move to the join view.
 	useEffect(() => {
 		const path = window.location.pathname;
 		const gameIdFromUrl = path.length > 1 ? path.substring(1) : null;
@@ -257,36 +237,23 @@ function App() {
 		}
 	}, []);
 
-	// Helper to compare two card objects
+	// Helper to compare two card objects (using only suit and rank).
 	const cardMatches = (a, b) => {
-		return (
-			a &&
-			b &&
-			a.isJoker === b.isJoker &&
-			a.suit === b.suit &&
-			a.rank === b.rank
-		);
+		return a && b && a.suit === b.suit && a.rank === b.rank;
 	};
 
+	// Keyboard controls for selecting and playing cards.
 	useEffect(() => {
 		const handleKeyDown = (e) => {
-			// Enable keyboard shortcuts only during the game and playing phase
 			if (view !== 'game' || !gameState || gameState.state !== 'playing')
 				return;
-
-			// Get the current player's hand and sort it
 			const me = gameState.players.find((p) => p.id === playerId);
 			if (!me || !me.hand || me.hand.length === 0) return;
 			const sortedHand = sortHand(me.hand);
-
-			// If a number key is pressed, select that card (1-indexed)
 			if (e.key >= '1' && e.key <= String(sortedHand.length)) {
 				const index = parseInt(e.key, 10) - 1;
 				setSelectedCard(sortedHand[index]);
-			}
-			// Use the right arrow to move selection to the next card;
-			// if no card is selected, select the first card.
-			else if (e.key === 'ArrowRight') {
+			} else if (e.key === 'ArrowRight') {
 				if (!selectedCard) {
 					setSelectedCard(sortedHand[0]);
 				} else {
@@ -296,9 +263,7 @@ function App() {
 					const newIndex = (currentIndex + 1) % sortedHand.length;
 					setSelectedCard(sortedHand[newIndex]);
 				}
-			}
-			// Use the left arrow to move selection to the previous card.
-			else if (e.key === 'ArrowLeft') {
+			} else if (e.key === 'ArrowLeft') {
 				if (!selectedCard) {
 					setSelectedCard(sortedHand[sortedHand.length - 1]);
 				} else {
@@ -309,20 +274,17 @@ function App() {
 						(currentIndex - 1 + sortedHand.length) % sortedHand.length;
 					setSelectedCard(sortedHand[newIndex]);
 				}
-			}
-			// If Enter is pressed while a card is selected, play the card.
-			else if (e.key === 'Enter') {
+			} else if (e.key === 'Enter') {
 				if (selectedCard) {
 					playSelectedCard();
 				}
 			}
 		};
-
 		window.addEventListener('keydown', handleKeyDown);
 		return () => window.removeEventListener('keydown', handleKeyDown);
 	}, [view, gameState, playerId, selectedCard]);
 
-	// Create a new game by calling the backend.
+	// Create a new game.
 	const createGame = async () => {
 		const response = await fetch(`${API_URL}/games/create`, {
 			method: 'POST',
@@ -351,7 +313,7 @@ function App() {
 		setView('lobby');
 	};
 
-	// Start the game by transitioning to the bidding phase.
+	// Start the game.
 	const startGame = async () => {
 		await fetch(`${API_URL}/games/start`, {
 			method: 'POST',
@@ -361,7 +323,7 @@ function App() {
 		fetchGameState();
 	};
 
-	// Handle placing a bid from the BidModal.
+	// Handle placing a bid.
 	const handlePlaceBid = async (bidValue) => {
 		await fetch(`${API_URL}/games/bid`, {
 			method: 'POST',
@@ -371,7 +333,7 @@ function App() {
 		fetchGameState();
 	};
 
-	// Play a selected card.
+	// Play the selected card.
 	const playSelectedCard = async () => {
 		if (!selectedCard) return;
 		await fetch(`${API_URL}/games/play`, {
@@ -382,7 +344,7 @@ function App() {
 		setSelectedCard(null);
 	};
 
-	// Fetch the current game state from the backend.
+	// Fetch the current game state.
 	const fetchGameState = async () => {
 		const response = await fetch(`${API_URL}/games/state?gameId=${gameId}`);
 		if (!response.ok) {
@@ -391,13 +353,10 @@ function App() {
 			return;
 		}
 		const data = await response.json();
-		// If the game state indicates that the game is finished, update gameOver flag.
 		if (data.state === 'finished') {
 			setGameState(data);
 			setGameOver(true);
 		} else {
-			// If a trick is complete (all players played and a winner is set),
-			// temporarily hold the trick state before updating gameState.
 			if (
 				data.currentRound &&
 				data.currentRound.currentTrick &&
@@ -409,12 +368,11 @@ function App() {
 					setTimeout(() => {
 						setGameState(data);
 						setLastTrick(null);
-					}, 2000); // Delay to allow UI to display the trick-over message
+					}, 2000);
 				}
 			} else {
 				setGameState(data);
 			}
-			// If the game state is one of these, set the view to 'game'.
 			if (
 				data.state === 'bidding' ||
 				data.state === 'playing' ||
@@ -423,25 +381,19 @@ function App() {
 				setView('game');
 			}
 		}
-		// Update the action message (e.g., whose turn it is) based on the game state.
 		updateTurnMessages(data);
 	};
 
-	// updateTurnMessages: Updates the UI message that tells the user what is happening.
-	// It prioritizes the trickOverMessage if present, then displays appropriate messages for bidding or playing.
+	// Update the UI action message.
 	const updateTurnMessages = (data) => {
 		if (!data || !data.currentRound) {
 			setActionMessage('');
 			return;
 		}
-
-		// If the backend sent a trickOverMessage (e.g., "Alice won the trick!"), display it immediately.
 		if (data.trickOverMessage) {
 			setActionMessage(data.trickOverMessage);
 			return;
 		}
-
-		// Handle bidding phase: show "YOUR TURN to bid" or "Waiting for [player] to bid".
 		if (data.state === 'bidding') {
 			const round = data.currentRound;
 			const currentBidderId = round.bidOrder[round.currentBidTurn];
@@ -457,9 +409,7 @@ function App() {
 					setActionMessage('');
 				}
 			}
-		}
-		// Handle playing phase: show whose turn it is to play a card.
-		else if (data.state === 'playing') {
+		} else if (data.state === 'playing') {
 			const round = data.currentRound;
 			if (
 				round.currentTrick &&
@@ -483,20 +433,19 @@ function App() {
 		}
 	};
 
-	// resetGame: Calls the backend to reset the game state and then refreshes the local state.
+	// Reset the game.
 	const resetGame = async () => {
 		await fetch(`${API_URL}/games/reset`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ gameId }),
 		});
-		// Short delay before refetching the state to ensure backend update.
 		setTimeout(() => {
 			fetchGameState();
 		}, 500);
 	};
 
-	// Poll the backend for the game state every 2 seconds.
+	// Poll for game state updates every 2 seconds.
 	useEffect(() => {
 		const interval = setInterval(() => {
 			if (gameId) fetchGameState();
@@ -504,7 +453,7 @@ function App() {
 		return () => clearInterval(interval);
 	}, [gameId]);
 
-	// isMyTurnToBid: Checks if the local player is the current bidder.
+	// isMyTurnToBid: Check if it is the current player's turn to bid.
 	const isMyTurnToBid = () => {
 		if (!gameState || !gameState.currentRound) return false;
 		const round = gameState.currentRound;
@@ -517,37 +466,21 @@ function App() {
 			<div
 				key={index}
 				className={`hand-card ${
-					selectedCard &&
-					selectedCard.isJoker === card.isJoker &&
-					selectedCard.suit === card.suit &&
-					selectedCard.rank === card.rank
-						? 'selected'
-						: ''
+					selectedCard && cardMatches(selectedCard, card) ? 'selected' : ''
 				}`}
-				// Make the card draggable.
 				draggable="true"
 				onDragStart={(e) => {
-					// Mark this card as selected when dragging starts.
 					setSelectedCard(card);
-					// Optionally, you can attach data to the drag event if needed.
 					e.dataTransfer.setData('text/plain', JSON.stringify(card));
 					e.dataTransfer.effectAllowed = 'move';
 				}}
-				// Optionally, clear selection if the drag is cancelled.
 				onDragEnd={() => {
-					// You might want to clear the selection if the card wasn’t dropped on a valid drop zone.
-					// setSelectedCard(null);
+					// Optionally clear selection if drag is cancelled.
 				}}
 				onClick={() => {
 					if (gameState && gameState.state === 'playing') {
-						// Toggle selection on click (existing logic)
 						setSelectedCard(
-							selectedCard &&
-								selectedCard.isJoker === card.isJoker &&
-								selectedCard.suit === card.suit &&
-								selectedCard.rank === card.rank
-								? null
-								: card
+							selectedCard && cardMatches(selectedCard, card) ? null : card
 						);
 					}
 				}}
@@ -560,13 +493,11 @@ function App() {
 	// Render the current trick cards on the table.
 	const renderCurrentTrick = (round) => {
 		if (!round || !round.currentTrick) return null;
-		// Use lastTrick if set (for animation/delay effect), otherwise use the current trick.
 		const trickToShow = lastTrick || round.currentTrick;
 		return (
 			<div className="current-trick-cards">
 				{trickToShow.plays.map((play, index) => {
 					const player = gameState.players.find((p) => p.id === play.playerId);
-					// Determine if this card is the winning card.
 					const isWinning =
 						trickToShow.winnerID &&
 						play.playerId === trickToShow.winnerID &&
@@ -579,11 +510,7 @@ function App() {
 							<div className="played-card-player">
 								{player ? player.displayName : play.playerId}
 							</div>
-							<div className="played-card-content">
-								{play.card.isJoker
-									? formatCard(play.card)
-									: formatCard(play.card)}
-							</div>
+							<div className="played-card-content">{formatCard(play.card)}</div>
 						</div>
 					);
 				})}
@@ -591,7 +518,7 @@ function App() {
 		);
 	};
 
-	// In renderGameBoard, update the table container to act as a drop zone.
+	// Render the main game board.
 	const renderGameBoard = () => {
 		if (!gameState) return <div>Loading game state...</div>;
 		const me = gameState.players.find((p) => p.id === playerId);
@@ -633,17 +560,15 @@ function App() {
 						<p>{gameState.state === 'finished' ? '' : actionMessage}</p>
 					</div>
 				</div>
-				{/* Updated table container to support dropping a card */}
+				{/* Table drop zone */}
 				<div
 					className="table-container"
 					onDragOver={(e) => {
-						// Prevent default to allow a drop.
 						e.preventDefault();
 						e.dataTransfer.dropEffect = 'move';
 					}}
 					onDrop={(e) => {
 						e.preventDefault();
-						// When a card is dropped on the table container, attempt to play it.
 						if (selectedCard && gameState.state === 'playing') {
 							playSelectedCard();
 						}
@@ -680,7 +605,7 @@ function App() {
 							maxBid={gameState.currentRound.totalCards}
 						/>
 					)}
-				{/* Optionally, you can still show the "Play Card" button if a card is selected */}
+				{/* "Play Card" button */}
 				{selectedCard && (
 					<div className="play-card-section">
 						<button
@@ -694,20 +619,10 @@ function App() {
 											const leadSuit =
 												gameState.currentRound.currentTrick.plays[0].card.suit.toLowerCase();
 											const hasLeadSuit = me.hand.some(
-												(c) =>
-													(!c.isJoker && c.suit.toLowerCase() === leadSuit) ||
-													(leadSuit === 'spades' && c.isJoker)
+												(c) => c.rank <= 14 && c.suit.toLowerCase() === leadSuit
 											);
 											if (hasLeadSuit) {
-												if (
-													leadSuit === 'spades' &&
-													!selectedCard.isJoker &&
-													selectedCard.suit.toLowerCase() !== 'spades'
-												) {
-													return false;
-												} else if (
-													selectedCard.suit.toLowerCase() !== leadSuit
-												) {
+												if (selectedCard.suit.toLowerCase() !== leadSuit) {
 													return false;
 												}
 											}
@@ -728,7 +643,7 @@ function App() {
 		);
 	};
 
-	// Render different views based on the current state: home, join, lobby, or game.
+	// Render different views.
 	if (view === 'home') {
 		return (
 			<div className="App">
