@@ -17,9 +17,10 @@ const formatCard = (card) => {
 		// Joker: rank 16 is Joker 1, rank 15 is Joker 2.
 		const jokerName = card.rank === 16 ? 'J1' : 'J2';
 		return (
-			<span style={{ color: 'black', fontSize: '24px', fontWeight: 'bold' }}>
-				{jokerName}
-			</span>
+			<div className="card-display">
+				<div className="card-rank">{jokerName}</div>
+				<div className="card-suit">♠</div>
+			</div>
 		);
 	}
 	let rankText;
@@ -50,21 +51,23 @@ const formatCard = (card) => {
 			suitSymbol = '♦';
 			suitColor = 'red';
 			break;
-		case 'spades':
-			suitSymbol = '♠';
-			suitColor = 'black';
-			break;
 		case 'clubs':
 			suitSymbol = '♣';
-			suitColor = 'black';
 			break;
+		case 'spades':
 		default:
-			suitSymbol = card.suit;
+			suitSymbol = '♠';
 	}
+
 	return (
-		<span style={{ color: suitColor, fontSize: '24px', fontWeight: 'bold' }}>
-			{rankText} {suitSymbol}
-		</span>
+		<div className="card-display">
+			<div className="card-rank" style={{ color: suitColor }}>
+				{rankText}
+			</div>
+			<div className="card-suit" style={{ color: suitColor }}>
+				{suitSymbol}
+			</div>
+		</div>
 	);
 };
 
@@ -105,6 +108,8 @@ function TablePlayers({ players, currentRound, currentPlayerId }) {
 		const angle = (360 / numPlayers) * i + offset;
 		return { ...player, angle };
 	});
+	const isMobile = window.innerWidth <= 768;
+
 	return (
 		<div className="table-players">
 			{playersWithAngle.map((player) => {
@@ -127,11 +132,9 @@ function TablePlayers({ players, currentRound, currentPlayerId }) {
 						className="table-player"
 						style={{ left: `${left}%`, top: `${top}%` }}
 					>
-						<div className="table-player-info">
-							{player.displayName}{' '}
-							<span className="table-player-bid">
-								({player.tricksWon || 0}/{bid})
-							</span>
+						<div className="table-player-name">{player.displayName}</div>
+						<div className="table-player-stats">
+							{player.tricksWon || 0}/{bid}
 						</div>
 						{currentRound &&
 							currentRound.dealerIndex !== undefined &&
@@ -139,6 +142,7 @@ function TablePlayers({ players, currentRound, currentPlayerId }) {
 							player.id === players[currentRound.dealerIndex].id && (
 								<div className="dealer-chip">D</div>
 							)}
+						<div className="player-card-area"></div>
 					</div>
 				);
 			})}
@@ -474,13 +478,21 @@ function App() {
 		</div>
 	);
 
-	const renderHandCard = (card, index) => {
+	const renderHandCard = (card, index, isLastCard, totalCards) => {
+		const isMobile = window.innerWidth <= 768;
+		const offset = isMobile ? 30 : 10;
+
 		return (
 			<div
 				key={index}
 				className={`hand-card ${
 					selectedCard && cardMatches(selectedCard, card) ? 'selected' : ''
-				}`}
+				} ${isLastCard ? 'last-card' : ''}`}
+				style={{
+					zIndex: index + 1,
+					left: `${index * offset}px`,
+					position: 'absolute',
+				}}
 				draggable="true"
 				onDragStart={(e) => {
 					setSelectedCard(card);
@@ -504,6 +516,8 @@ function App() {
 	const renderCurrentTrick = (round) => {
 		if (!round || !round.currentTrick) return null;
 		const trickToShow = lastTrick || round.currentTrick;
+		const isMobile = window.innerWidth <= 768;
+
 		return (
 			<div className="current-trick-cards">
 				{trickToShow.plays.map((play, index) => {
@@ -512,6 +526,7 @@ function App() {
 						trickToShow.winnerID &&
 						play.playerId === trickToShow.winnerID &&
 						trickToShow.plays.length === gameState.players.length;
+
 					return (
 						<div
 							key={index}
@@ -520,12 +535,71 @@ function App() {
 							<div className="played-card-player">
 								{player ? player.displayName : play.playerId}
 							</div>
-							<div className="played-card-content">{formatCard(play.card)}</div>
+							<div className="played-card-content">
+								<div
+									className="card-rank"
+									style={{
+										color: ['hearts', 'diamonds'].includes(
+											play.card.suit.toLowerCase()
+										)
+											? 'red'
+											: 'black',
+									}}
+								>
+									{getCardRankDisplay(play.card.rank)}
+								</div>
+								<div
+									className="card-suit"
+									style={{
+										color: ['hearts', 'diamonds'].includes(
+											play.card.suit.toLowerCase()
+										)
+											? 'red'
+											: 'black',
+									}}
+								>
+									{getCardSuitSymbol(play.card.suit)}
+								</div>
+							</div>
 						</div>
 					);
 				})}
 			</div>
 		);
+	};
+
+	// Helper functions for card display
+	const getCardRankDisplay = (rank) => {
+		switch (rank) {
+			case 11:
+				return 'J';
+			case 12:
+				return 'Q';
+			case 13:
+				return 'K';
+			case 14:
+				return 'A';
+			case 15:
+				return 'J2';
+			case 16:
+				return 'J1';
+			default:
+				return rank;
+		}
+	};
+
+	const getCardSuitSymbol = (suit) => {
+		switch (suit.toLowerCase()) {
+			case 'hearts':
+				return '♥';
+			case 'diamonds':
+				return '♦';
+			case 'clubs':
+				return '♣';
+			case 'spades':
+			default:
+				return '♠';
+		}
 	};
 
 	const renderGameBoard = () => {
@@ -536,6 +610,7 @@ function App() {
 		const round = gameState.currentRound;
 		const sortedHand = me && me.hand ? sortHand(me.hand) : [];
 		const turnMessage = computeTurnMessage();
+
 		return (
 			<div className="game-board">
 				{gameState.state === 'finished' && (
@@ -662,7 +737,25 @@ function App() {
 					</div>
 				)}
 				{me && me.hand && (
-					<div className="hand-container">{sortedHand.map(renderHandCard)}</div>
+					<div className="hand-container">
+						<div
+							className="hand-cards-wrapper"
+							style={{
+								position: 'relative',
+								height: '100%',
+								width: `${sortedHand.length * 30 + 50}px`,
+							}}
+						>
+							{sortedHand.map((card, index) =>
+								renderHandCard(
+									card,
+									index,
+									index === sortedHand.length - 1,
+									sortedHand.length
+								)
+							)}
+						</div>
+					</div>
 				)}
 			</div>
 		);

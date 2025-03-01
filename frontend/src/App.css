@@ -111,48 +111,38 @@ input[type='number'] {
 
 /* Hand container styling: fixed size, light brown background */
 .hand-container {
-	position: fixed;
-	bottom: 0;
-	left: 260px;
-	right: 0;
-	background: #006400;
-	color: #000;
-	padding: 10px;
-	height: 130px;
+	position: relative;
 	display: flex;
 	justify-content: center;
-	align-items: center;
-	box-shadow: 0 -2px 5px rgba(0, 0, 0, 0.3);
-	overflow-x: auto;
+	margin-top: 20px;
+	height: 120px;
+	width: 100%;
 }
 
 /* Hand card styles */
 .hand-card {
-	background-color: white;
-	border: 1px solid #333;
-	border-radius: 6px;
 	width: 70px;
 	height: 100px;
-	margin: 0 5px;
+	background-color: white;
+	border-radius: 5px;
+	box-shadow: 1px 1px 3px rgba(0, 0, 0, 0.3);
 	display: flex;
 	justify-content: center;
 	align-items: center;
-	transition: transform 0.2s ease, box-shadow 0.2s ease;
 	cursor: pointer;
-	flex-shrink: 0;
-}
-.hand-card .card-content {
-	font-size: 24px;
-	font-weight: bold;
-	padding: 4px;
-	word-break: break-word;
-}
-.hand-card:hover {
-	transform: scale(1.05);
-	box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+	transition: transform 0.2s;
+	margin: 0 5px;
 }
 .hand-card.selected {
-	background-color: rgb(200, 200, 200);
+	transform: translateY(-20px);
+	box-shadow: 0 0 10px rgba(255, 215, 0, 0.7);
+}
+.hand-card .card-content {
+	width: 100%;
+	height: 100%;
+	display: flex;
+	justify-content: center;
+	align-items: center;
 }
 
 /* Top section styling */
@@ -246,6 +236,7 @@ input[type='number'] {
 	transform: translate(-50%, -50%);
 	text-align: center;
 	white-space: nowrap;
+	z-index: 10;
 }
 .table-player .table-player-info {
 	font-size: 18px;
@@ -258,16 +249,19 @@ input[type='number'] {
 
 /* Dealer chip styling (larger) */
 .dealer-chip {
-	margin-top: 4px;
-	background: gold;
-	color: black;
+	position: absolute;
+	top: -15px;
+	left: 50%;
+	transform: translateX(-50%);
+	width: 25px;
+	height: 25px;
+	background-color: #ffd700;
 	border-radius: 50%;
-	width: 40px;
-	height: 40px;
-	line-height: 40px;
-	font-size: 20px;
+	display: flex;
+	justify-content: center;
+	align-items: center;
 	font-weight: bold;
-	margin: 0 auto;
+	color: black;
 }
 
 /* Game controls styling */
@@ -363,41 +357,35 @@ input[type='number'] {
 		left: 0;
 		right: 0;
 		background: #006400;
-		color: #000;
-		padding: 10px; /* fixed padding */
-		height: 15vh;
+		padding: 10px;
+		height: 120px;
 		display: flex;
 		justify-content: center;
 		align-items: center;
 		box-shadow: 0 -2px 5px rgba(0, 0, 0, 0.3);
-		overflow-x: auto;
+		overflow-x: visible;
 	}
 
 	/* Adjust table container (oval) for mobile with relative sizing and increased top margin */
 	.table-container {
 		width: 100%;
-		height: 40vh;
-		margin: 10vh 0 2vh 0; /* increased top margin from 5vh to 10vh */
+		height: 50vh;
+		margin: 5vh 0 2vh 0;
+		position: relative;
 	}
 	.table-oval {
-		width: 100%;
-		height: 100%;
+		width: 90%;
+		height: 90%;
 		margin: 0 auto;
+		background-color: #0a5c1f;
+		border-radius: 50%;
+		position: relative;
+		box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.5);
 	}
 
 	/* Responsive font sizes for game messages */
 	.action-message {
 		font-size: 3vw;
-	}
-
-	/* Revert hand card dimensions to fixed pixel values as before */
-	.hand-card {
-		width: 50px;
-		height: 70px;
-		margin: 0 3px;
-	}
-	.hand-card .card-content {
-		font-size: 20px;
 	}
 
 	/* Mobile scoreboard overlay: full-screen overlay that fills the screen edge-to-edge */
@@ -433,6 +421,211 @@ input[type='number'] {
 		position: relative;
 		z-index: 50;
 	}
+
+	/* Mobile card styling */
+	.hand-card {
+		position: absolute;
+		width: 50px;
+		height: 70px;
+		background-color: white;
+		border-radius: 5px;
+		box-shadow: 1px 1px 3px rgba(0, 0, 0, 0.3);
+		display: flex;
+		justify-content: center;
+		align-items: center;
+		cursor: pointer;
+		transition: transform 0.2s;
+	}
+
+	.hand-card.last-card {
+		width: 60px;
+		height: 85px;
+	}
+
+	.hand-card .card-content {
+		width: 100%;
+		height: 100%;
+		display: flex;
+		flex-direction: column;
+		justify-content: center;
+		align-items: center;
+	}
+
+	.hand-card .card-rank {
+		font-size: 18px;
+	}
+
+	.hand-card .card-suit {
+		font-size: 18px;
+	}
+
+	/* Player info on table */
+	.table-player {
+		background-color: rgba(0, 0, 0, 0.7);
+		border-radius: 10px;
+		padding: 5px 10px;
+		min-width: 80px;
+	}
+
+	.table-player-info {
+		font-size: 14px;
+		font-weight: bold;
+		text-align: center;
+	}
+
+	.table-player-bid {
+		display: block;
+		font-size: 12px;
+		margin-top: 3px;
+	}
+
+	/* Play area styling */
+	.current-trick-cards {
+		display: flex;
+		flex-wrap: wrap;
+		justify-content: center;
+		gap: 10px;
+		margin-top: 10px;
+	}
+
+	.played-card {
+		background-color: white;
+		border-radius: 5px;
+		padding: 5px;
+		width: 60px;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+	}
+
+	.played-card-player {
+		font-size: 10px;
+		color: #333;
+		margin-bottom: 3px;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		width: 100%;
+		text-align: center;
+	}
+
+	.played-card-content {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+	}
+
+	/* Mobile player stats display */
+	.player-stats {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		grid-template-rows: auto auto;
+		gap: 2px;
+		margin-top: 5px;
+		text-align: center;
+		width: 100%;
+	}
+
+	.player-bid-label {
+		font-size: 10px;
+		color: #ccc;
+		text-transform: uppercase;
+	}
+
+	.player-bid-value {
+		font-size: 18px;
+		font-weight: bold;
+		color: white;
+	}
+
+	/* Mobile trick cards display */
+	.mobile-trick-cards {
+		display: flex;
+		flex-direction: row;
+		justify-content: center;
+		flex-wrap: nowrap;
+		gap: 5px;
+		margin: 10px auto;
+		max-width: 100%;
+		overflow-x: auto;
+	}
+
+	.played-card-mobile {
+		background-color: white;
+		border-radius: 5px;
+		padding: 5px;
+		min-width: 40px;
+		height: 60px;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		position: relative;
+		box-shadow: 1px 1px 3px rgba(0, 0, 0, 0.3);
+	}
+
+	.played-card-mobile.winning-card {
+		box-shadow: 0 0 8px 2px gold;
+	}
+
+	.played-card-mobile .played-card-player {
+		position: absolute;
+		top: -20px;
+		left: 0;
+		right: 0;
+		font-size: 10px;
+		color: white;
+		text-align: center;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.played-card-mobile .played-card-content {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		height: 100%;
+	}
+
+	.played-card-mobile .card-rank {
+		font-size: 20px;
+		font-weight: bold;
+		line-height: 1;
+	}
+
+	.played-card-mobile .card-suit {
+		font-size: 20px;
+		line-height: 1;
+	}
+
+	/* Player card area */
+	.player-card-area {
+		width: 40px;
+		height: 60px;
+		margin: 5px auto 0;
+		border: 1px dashed rgba(255, 255, 255, 0.5);
+		border-radius: 5px;
+		background-color: rgba(0, 0, 0, 0.2);
+	}
+
+	/* Table layout adjustments */
+	.table-container {
+		width: 100%;
+		height: 50vh;
+		margin: 5vh 0 2vh 0;
+		position: relative;
+	}
+
+	.table-oval {
+		width: 90%;
+		height: 90%;
+		margin: 0 auto;
+		background-color: #0a5c1f;
+		border-radius: 50%;
+		position: relative;
+		box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.5);
+	}
 }
 
 /* Mobile scoreboard toggle styling */
@@ -460,4 +653,75 @@ input[type='number'] {
 	z-index: 200;
 	overflow: auto;
 	padding: 2vh 2vw;
+}
+
+/* Card display styling */
+.card-display {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+}
+
+.card-rank {
+	font-size: 24px;
+	font-weight: bold;
+	line-height: 1;
+}
+
+.card-suit {
+	font-size: 24px;
+	line-height: 1;
+}
+
+.card-corner {
+	position: absolute;
+}
+
+.top-left {
+	top: 5px;
+	left: 5px;
+}
+
+.top-right {
+	top: 5px;
+	right: 5px;
+}
+
+.card-center {
+	position: absolute;
+	top: 50%;
+	left: 50%;
+	transform: translate(-50%, -50%);
+	font-size: 1.5em;
+}
+
+/* Table player styling */
+.table-player {
+	position: absolute;
+	transform: translate(-50%, -50%);
+	text-align: center;
+	z-index: 10;
+}
+
+.table-player-name {
+	font-weight: bold;
+	color: white;
+	text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.7);
+	margin-bottom: 5px;
+}
+
+.table-player-stats {
+	font-size: 14px;
+	color: white;
+	margin-bottom: 5px;
+}
+
+.player-card-area {
+	width: 40px;
+	height: 60px;
+	margin: 5px auto;
+	border: 1px dashed rgba(255, 255, 255, 0.5);
+	border-radius: 5px;
+	background-color: rgba(0, 0, 0, 0.2);
 }
