@@ -36,3 +36,6 @@ backend/bin/
 
 # OS files
 .DS_Store
+
+# Old frontend directory
+frontend-old/

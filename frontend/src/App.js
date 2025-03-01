@@ -2,7 +2,9 @@ import React, { useState, useEffect } from 'react';
 import BidModal from './BidModal'; // Import the vertical bidding modal component
 import './App.css';
 
-const API_URL = 'https://upanddownbackend-755936114859.us-central1.run.app';
+const API_URL =
+	process.env.REACT_APP_API_URL ||
+	'https://upanddownbackend-755936114859.us-central1.run.app';
 
 // ---------------------------
 // Helper Functions

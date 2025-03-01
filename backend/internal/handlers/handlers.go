@@ -240,6 +240,43 @@ func BidHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	round.CurrentBidTurn++
 	if round.CurrentBidTurn >= len(round.BidOrder) {
+		// For one-card rounds, check if we need to redeal
+		if round.TotalCards == 1 {
+			// Count non-zero bids
+			nonZeroBids := 0
+			for _, bid := range round.Bids {
+				if bid > 0 {
+					nonZeroBids++
+				}
+			}
+			
+			// Redeal if fewer than 2 non-zero bids
+			if nonZeroBids < 2 {
+				// Reset bids and hands
+				for _, p := range g.Players {
+					p.Hand = []game.Card{}
+					p.CurrentBid = 0
+				}
+				
+				// Keep same dealer and bidding order, just reset bids and deal new cards
+				g.CurrentRound.Bids = make(map[string]int)
+				g.CurrentRound.CurrentBidTurn = 0
+				
+				// Deal new cards
+				deck := game.CreateDeck()
+				game.ShuffleDeck(deck)
+				game.DealCards(deck, g.Players, round.TotalCards)
+				
+				resp := map[string]interface{}{
+					"message": "Round redealt due to insufficient non-zero bids",
+					"bids":    g.CurrentRound.Bids,
+				}
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(resp)
+				return
+			}
+		}
+		
 		g.State = "playing"
 		highestBid := -1
 		leaderID := ""
