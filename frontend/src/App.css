@@ -449,14 +449,21 @@ input[type='number'] {
 		flex-direction: column;
 		justify-content: center;
 		align-items: center;
+		position: relative;
 	}
 
 	.hand-card .card-rank {
 		font-size: 18px;
+		position: absolute;
+		top: 5px;
+		left: 5px;
 	}
 
 	.hand-card .card-suit {
 		font-size: 18px;
+		position: absolute;
+		top: 22px;
+		left: 5px;
 	}
 
 	/* Player info on table - MOBILE SPECIFIC */
@@ -496,6 +503,7 @@ input[type='number'] {
 		flex-direction: column;
 		align-items: center;
 		box-shadow: 1px 1px 3px rgba(0, 0, 0, 0.3);
+		position: relative;
 	}
 
 	.played-card.winning-card {
@@ -514,11 +522,23 @@ input[type='number'] {
 	}
 
 	.played-card-content {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		flex-grow: 1;
+		width: 100%;
+		height: 100%;
+		position: relative;
+	}
+
+	.played-card .card-rank {
+		position: absolute;
+		top: 5px;
+		left: 5px;
+		font-size: 18px;
+	}
+
+	.played-card .card-suit {
+		position: absolute;
+		top: 22px;
+		left: 5px;
+		font-size: 18px;
 	}
 
 	/* Player card area - MOBILE SPECIFIC */
@@ -529,6 +549,19 @@ input[type='number'] {
 		border: 1px dashed rgba(255, 255, 255, 0.5);
 		border-radius: 5px;
 		background-color: rgba(0, 0, 0, 0.1);
+	}
+
+	/* Adjust player positioning for mobile */
+	.table-player {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+	}
+
+	/* Push player name to the edge and card area toward the center */
+	.table-player-name,
+	.table-player-stats {
+		margin-bottom: 2px;
 	}
 }
 

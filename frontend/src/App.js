@@ -111,8 +111,12 @@ function TablePlayers({ players, currentRound, currentPlayerId }) {
 	const isMobile = window.innerWidth <= 768;
 
 	// Adjust radius for mobile devices
-	const radiusX = isMobile ? 180 : 220;
-	const radiusY = isMobile ? 130 : 160;
+	const radiusX = isMobile ? 200 : 220;
+	const radiusY = isMobile ? 150 : 160;
+
+	// Radius for card placement areas (more toward center)
+	const cardAreaRadiusX = isMobile ? 150 : radiusX;
+	const cardAreaRadiusY = isMobile ? 110 : radiusY;
 
 	return (
 		<div className="table-players">
@@ -122,6 +126,13 @@ function TablePlayers({ players, currentRound, currentPlayerId }) {
 				const y = radiusY * Math.sin(angleRad);
 				const left = 50 + (x / 400) * 100;
 				const top = 50 + (y / 300) * 100;
+
+				// Calculate position for card area (more toward center)
+				const cardX = cardAreaRadiusX * Math.cos(angleRad);
+				const cardY = cardAreaRadiusY * Math.sin(angleRad);
+				const cardLeft = 50 + (cardX / 400) * 100;
+				const cardTop = 50 + (cardY / 300) * 100;
+
 				const bid =
 					currentRound &&
 					currentRound.bids &&
@@ -144,7 +155,19 @@ function TablePlayers({ players, currentRound, currentPlayerId }) {
 							player.id === players[currentRound.dealerIndex].id && (
 								<div className="dealer-chip">D</div>
 							)}
-						<div className="player-card-area"></div>
+						{isMobile ? (
+							<div
+								className="player-card-area"
+								style={{
+									position: 'absolute',
+									left: `${cardLeft - left}%`,
+									top: `${cardTop - top}%`,
+									transform: 'translate(-50%, -50%)',
+								}}
+							></div>
+						) : (
+							<div className="player-card-area"></div>
+						)}
 					</div>
 				);
 			})}
@@ -546,7 +569,6 @@ function App() {
 										)
 											? 'red'
 											: 'black',
-										fontSize: isMobile ? '18px' : '24px',
 									}}
 								>
 									{getCardRankDisplay(play.card.rank)}
@@ -559,7 +581,6 @@ function App() {
 										)
 											? 'red'
 											: 'black',
-										fontSize: isMobile ? '18px' : '24px',
 									}}
 								>
 									{getCardSuitSymbol(play.card.suit)}
