@@ -110,12 +110,14 @@ function TablePlayers({ players, currentRound, currentPlayerId }) {
 	});
 	const isMobile = window.innerWidth <= 768;
 
+	// Adjust radius for mobile devices
+	const radiusX = isMobile ? 180 : 220;
+	const radiusY = isMobile ? 130 : 160;
+
 	return (
 		<div className="table-players">
 			{playersWithAngle.map((player) => {
 				const angleRad = (player.angle * Math.PI) / 180;
-				const radiusX = 220;
-				const radiusY = 160;
 				const x = radiusX * Math.cos(angleRad);
 				const y = radiusY * Math.sin(angleRad);
 				const left = 50 + (x / 400) * 100;
@@ -544,6 +546,7 @@ function App() {
 										)
 											? 'red'
 											: 'black',
+										fontSize: isMobile ? '18px' : '24px',
 									}}
 								>
 									{getCardRankDisplay(play.card.rank)}
@@ -556,6 +559,7 @@ function App() {
 										)
 											? 'red'
 											: 'black',
+										fontSize: isMobile ? '18px' : '24px',
 									}}
 								>
 									{getCardSuitSymbol(play.card.suit)}

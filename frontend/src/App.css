@@ -409,7 +409,7 @@ input[type='number'] {
 		padding: 1vh 1vw;
 	}
 
-	/* NEW: Ensure table, rows, and cells inside the mobile scoreboard have a white background */
+	/* Ensure table, rows, and cells inside the mobile scoreboard have a white background */
 	.mobile-scoreboard table,
 	.mobile-scoreboard table tr,
 	.mobile-scoreboard table td {
@@ -459,24 +459,22 @@ input[type='number'] {
 		font-size: 18px;
 	}
 
-	/* Player info on table */
+	/* Player info on table - MOBILE SPECIFIC */
 	.table-player {
-		background-color: rgba(0, 0, 0, 0.7);
-		border-radius: 10px;
-		padding: 5px 10px;
-		min-width: 80px;
+		background-color: transparent;
+		padding: 5px;
+		min-width: 70px;
 	}
 
-	.table-player-info {
+	.table-player-name {
 		font-size: 14px;
 		font-weight: bold;
-		text-align: center;
+		text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.9);
 	}
 
-	.table-player-bid {
-		display: block;
-		font-size: 12px;
-		margin-top: 3px;
+	.table-player-stats {
+		font-size: 14px;
+		text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.9);
 	}
 
 	/* Play area styling */
@@ -492,10 +490,16 @@ input[type='number'] {
 		background-color: white;
 		border-radius: 5px;
 		padding: 5px;
-		width: 60px;
+		width: 50px;
+		height: 70px;
 		display: flex;
 		flex-direction: column;
 		align-items: center;
+		box-shadow: 1px 1px 3px rgba(0, 0, 0, 0.3);
+	}
+
+	.played-card.winning-card {
+		box-shadow: 0 0 8px 2px gold;
 	}
 
 	.played-card-player {
@@ -513,118 +517,18 @@ input[type='number'] {
 		display: flex;
 		flex-direction: column;
 		align-items: center;
-	}
-
-	/* Mobile player stats display */
-	.player-stats {
-		display: grid;
-		grid-template-columns: 1fr 1fr;
-		grid-template-rows: auto auto;
-		gap: 2px;
-		margin-top: 5px;
-		text-align: center;
-		width: 100%;
-	}
-
-	.player-bid-label {
-		font-size: 10px;
-		color: #ccc;
-		text-transform: uppercase;
-	}
-
-	.player-bid-value {
-		font-size: 18px;
-		font-weight: bold;
-		color: white;
-	}
-
-	/* Mobile trick cards display */
-	.mobile-trick-cards {
-		display: flex;
-		flex-direction: row;
 		justify-content: center;
-		flex-wrap: nowrap;
-		gap: 5px;
-		margin: 10px auto;
-		max-width: 100%;
-		overflow-x: auto;
+		flex-grow: 1;
 	}
 
-	.played-card-mobile {
-		background-color: white;
-		border-radius: 5px;
-		padding: 5px;
-		min-width: 40px;
-		height: 60px;
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		position: relative;
-		box-shadow: 1px 1px 3px rgba(0, 0, 0, 0.3);
-	}
-
-	.played-card-mobile.winning-card {
-		box-shadow: 0 0 8px 2px gold;
-	}
-
-	.played-card-mobile .played-card-player {
-		position: absolute;
-		top: -20px;
-		left: 0;
-		right: 0;
-		font-size: 10px;
-		color: white;
-		text-align: center;
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-	}
-
-	.played-card-mobile .played-card-content {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		height: 100%;
-	}
-
-	.played-card-mobile .card-rank {
-		font-size: 20px;
-		font-weight: bold;
-		line-height: 1;
-	}
-
-	.played-card-mobile .card-suit {
-		font-size: 20px;
-		line-height: 1;
-	}
-
-	/* Player card area */
+	/* Player card area - MOBILE SPECIFIC */
 	.player-card-area {
-		width: 40px;
-		height: 60px;
+		width: 30px;
+		height: 45px;
 		margin: 5px auto 0;
 		border: 1px dashed rgba(255, 255, 255, 0.5);
 		border-radius: 5px;
-		background-color: rgba(0, 0, 0, 0.2);
-	}
-
-	/* Table layout adjustments */
-	.table-container {
-		width: 100%;
-		height: 50vh;
-		margin: 5vh 0 2vh 0;
-		position: relative;
-	}
-
-	.table-oval {
-		width: 90%;
-		height: 90%;
-		margin: 0 auto;
-		background-color: #0a5c1f;
-		border-radius: 50%;
-		position: relative;
-		box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.5);
+		background-color: rgba(0, 0, 0, 0.1);
 	}
 }
 
@@ -715,6 +619,7 @@ input[type='number'] {
 	font-size: 14px;
 	color: white;
 	margin-bottom: 5px;
+	text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.7);
 }
 
 .player-card-area {
@@ -723,5 +628,5 @@ input[type='number'] {
 	margin: 5px auto;
 	border: 1px dashed rgba(255, 255, 255, 0.5);
 	border-radius: 5px;
-	background-color: rgba(0, 0, 0, 0.2);
+	background-color: rgba(0, 0, 0, 0.1);
 }
