@@ -552,42 +552,82 @@ function App() {
 						play.playerId === trickToShow.winnerID &&
 						trickToShow.plays.length === gameState.players.length;
 
-					return (
-						<div
-							key={index}
-							className={`played-card ${isWinning ? 'winning-card' : ''}`}
-						>
-							<div className="played-card-player">
-								{player ? player.displayName : play.playerId}
-							</div>
-							<div className="played-card-content">
-								<div
-									className="card-rank"
-									style={{
-										color: ['hearts', 'diamonds'].includes(
-											play.card.suit.toLowerCase()
-										)
-											? 'red'
-											: 'black',
-									}}
-								>
-									{getCardRankDisplay(play.card.rank)}
+					if (isMobile) {
+						return (
+							<div
+								key={index}
+								className={`played-card ${isWinning ? 'winning-card' : ''}`}
+							>
+								<div className="played-card-player">
+									{player ? player.displayName : play.playerId}
 								</div>
-								<div
-									className="card-suit"
-									style={{
-										color: ['hearts', 'diamonds'].includes(
-											play.card.suit.toLowerCase()
-										)
-											? 'red'
-											: 'black',
-									}}
-								>
-									{getCardSuitSymbol(play.card.suit)}
+								<div className="played-card-content">
+									<div
+										className="card-rank"
+										style={{
+											color: ['hearts', 'diamonds'].includes(
+												play.card.suit.toLowerCase()
+											)
+												? 'red'
+												: 'black',
+										}}
+									>
+										{getCardRankDisplay(play.card.rank)}
+									</div>
+									<div
+										className="card-suit"
+										style={{
+											color: ['hearts', 'diamonds'].includes(
+												play.card.suit.toLowerCase()
+											)
+												? 'red'
+												: 'black',
+										}}
+									>
+										{getCardSuitSymbol(play.card.suit)}
+									</div>
 								</div>
 							</div>
-						</div>
-					);
+						);
+					} else {
+						// Desktop view - original styling
+						return (
+							<div
+								key={index}
+								className={`played-card ${isWinning ? 'winning-card' : ''}`}
+							>
+								<div className="played-card-player">
+									{player ? player.displayName : play.playerId}
+								</div>
+								<div className="played-card-content">
+									<div
+										className="card-rank"
+										style={{
+											color: ['hearts', 'diamonds'].includes(
+												play.card.suit.toLowerCase()
+											)
+												? 'red'
+												: 'black',
+										}}
+									>
+										{getCardRankDisplay(play.card.rank)}
+									</div>
+									<div
+										className="card-suit"
+										style={{
+											color: ['hearts', 'diamonds'].includes(
+												play.card.suit.toLowerCase()
+											)
+												? 'red'
+												: 'black',
+										}}
+									>
+										{getCardSuitSymbol(play.card.suit)}
+									</div>
+								</div>
+							</div>
+						);
+					}
 				})}
 			</div>
 		);

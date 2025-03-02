@@ -471,28 +471,26 @@ input[type='number'] {
 		background-color: transparent;
 		padding: 5px;
 		min-width: 70px;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		white-space: normal;
 	}
 
 	.table-player-name {
 		font-size: 14px;
 		font-weight: bold;
 		text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.9);
+		margin-bottom: 2px;
 	}
 
 	.table-player-stats {
 		font-size: 14px;
 		text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.9);
+		margin-bottom: 2px;
 	}
 
-	/* Play area styling */
-	.current-trick-cards {
-		display: flex;
-		flex-wrap: wrap;
-		justify-content: center;
-		gap: 10px;
-		margin-top: 10px;
-	}
-
+	/* Mobile-specific played card styling */
 	.played-card {
 		background-color: white;
 		border-radius: 5px;
@@ -504,10 +502,12 @@ input[type='number'] {
 		align-items: center;
 		box-shadow: 1px 1px 3px rgba(0, 0, 0, 0.3);
 		position: relative;
+		border: 1px solid #333;
 	}
 
 	.played-card.winning-card {
 		box-shadow: 0 0 8px 2px gold;
+		border: 2px solid gold;
 	}
 
 	.played-card-player {
@@ -549,19 +549,6 @@ input[type='number'] {
 		border: 1px dashed rgba(255, 255, 255, 0.5);
 		border-radius: 5px;
 		background-color: rgba(0, 0, 0, 0.1);
-	}
-
-	/* Adjust player positioning for mobile */
-	.table-player {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-	}
-
-	/* Push player name to the edge and card area toward the center */
-	.table-player-name,
-	.table-player-stats {
-		margin-bottom: 2px;
 	}
 }
 
@@ -638,6 +625,7 @@ input[type='number'] {
 	position: absolute;
 	transform: translate(-50%, -50%);
 	text-align: center;
+	white-space: nowrap;
 	z-index: 10;
 }
 
@@ -661,5 +649,5 @@ input[type='number'] {
 	margin: 5px auto;
 	border: 1px dashed rgba(255, 255, 255, 0.5);
 	border-radius: 5px;
-	background-color: rgba(0, 0, 0, 0.1);
+	background-color: rgba(0, 0, 0, 0.2);
 }
