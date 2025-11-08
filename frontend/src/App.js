@@ -4,8 +4,8 @@ import './App.css';
 
 // Set the backend API URL. When running locally you might use localhost,
 // but here we're using the Cloud Run URL.
-const API_URL = 'https://upanddownbackend-755936114859.us-central1.run.app';
-
+//const API_URL = 'https://upanddownbackend-755936114859.us-central1.run.app';
+const API_URL = 'http://localhost:8080';
 // ---------------------------
 // Helper Functions
 // ---------------------------
@@ -282,26 +282,25 @@ function App() {
 	const [isCardPlayLocked, setIsCardPlayLocked] = useState(false);
 	const [scoreboardModalOpen, setScoreboardModalOpen] = useState(false);
 
-	// On component mount, check if there's a gameId in the URL or localStorage.
-	// If so, restore the session.
+	// On component mount, check if there's a gameId in the URL.
+	// Only restore from localStorage if there's a matching gameId in the URL.
 	useEffect(() => {
 		const path = window.location.pathname;
 		const gameIdFromUrl = path.length > 1 ? path.substring(1) : null;
 
-		// Try to restore from localStorage
-		const savedGameId = localStorage.getItem('gameId');
-		const savedPlayerId = localStorage.getItem('playerId');
-		const savedDisplayName = localStorage.getItem('displayName');
-
 		if (gameIdFromUrl) {
-			// If we have a gameId in the URL
+			// If we have a gameId in the URL, try to restore session
+			const savedGameId = localStorage.getItem('gameId');
+			const savedPlayerId = localStorage.getItem('playerId');
+			const savedDisplayName = localStorage.getItem('displayName');
+
 			if (savedGameId === gameIdFromUrl && savedPlayerId && savedDisplayName) {
 				// Restore session for THIS game
 				setGameId(savedGameId);
 				setPlayerId(savedPlayerId);
 				setDisplayName(savedDisplayName);
 				setView('lobby');
-				fetchGameState();
+				fetchGameState(savedGameId);
 			} else {
 				// Clear any saved session for a different game
 				localStorage.removeItem('gameId');
@@ -310,18 +309,13 @@ function App() {
 				setGameId(gameIdFromUrl);
 				setView('join');
 			}
-		} else if (savedGameId && savedPlayerId && savedDisplayName) {
-			// No URL gameId, but we have a saved session - restore it
-			setGameId(savedGameId);
-			setPlayerId(savedPlayerId);
-			setDisplayName(savedDisplayName);
-			setView('lobby');
-			fetchGameState();
 		} else {
-			// No URL gameId and no saved session - clear everything and show home
+			// No URL gameId - always show home and clear any old session data
 			localStorage.removeItem('gameId');
 			localStorage.removeItem('playerId');
 			localStorage.removeItem('displayName');
+			setGameId('');
+			setPlayerId('');
 			setView('home');
 		}
 	}, []);
@@ -408,8 +402,11 @@ function App() {
 	};
 
 	// Fetch the current game state from the backend.
-	const fetchGameState = async () => {
-		const response = await fetch(`${API_URL}/games/state?gameId=${gameId}`);
+	const fetchGameState = async (gameIdToFetch = gameId) => {
+		if (!gameIdToFetch) return;
+		const response = await fetch(
+			`${API_URL}/games/state?gameId=${gameIdToFetch}`
+		);
 		if (!response.ok) {
 			const errorText = await response.text();
 			console.error('Error fetching game state:', errorText);
@@ -521,6 +518,43 @@ function App() {
 		}, 500);
 	};
 
+	// goHome: Clear session and return to home screen
+	const goHome = () => {
+		localStorage.removeItem('gameId');
+		localStorage.removeItem('playerId');
+		localStorage.removeItem('displayName');
+		setGameId('');
+		setPlayerId('');
+		setDisplayName('');
+		setGameState(null);
+		setView('home');
+		// Clear URL
+		window.history.pushState({}, '', '/');
+	};
+
+	// copyToClipboard: Copies text to clipboard
+	const copyToClipboard = async (text) => {
+		try {
+			await navigator.clipboard.writeText(text);
+			// You could add a toast notification here if desired
+		} catch (err) {
+			console.error('Failed to copy text: ', err);
+			// Fallback for older browsers
+			const textArea = document.createElement('textarea');
+			textArea.value = text;
+			textArea.style.position = 'fixed';
+			textArea.style.left = '-999999px';
+			document.body.appendChild(textArea);
+			textArea.select();
+			try {
+				document.execCommand('copy');
+			} catch (err) {
+				console.error('Fallback copy failed: ', err);
+			}
+			document.body.removeChild(textArea);
+		}
+	};
+
 	// Poll the backend for the game state every 2 seconds.
 	useEffect(() => {
 		const interval = setInterval(() => {
@@ -534,6 +568,37 @@ function App() {
 		if (!gameState || !gameState.currentRound) return false;
 		const round = gameState.currentRound;
 		return round.bidOrder[round.currentBidTurn] === playerId;
+	};
+
+	// getForbiddenBid: Returns the bid value that the dealer cannot make (would make total = totalCards)
+	// Returns null if not applicable (not dealer's turn, round has 1 card, or forbidden bid is negative)
+	const getForbiddenBid = () => {
+		if (!gameState || !gameState.currentRound || gameState.state !== 'bidding')
+			return null;
+		const round = gameState.currentRound;
+
+		// Only applies to rounds with more than 1 card
+		if (round.totalCards <= 1) return null;
+
+		// Check if it's the dealer's turn (last bidder)
+		const isDealerTurn = round.currentBidTurn === round.bidOrder.length - 1;
+		if (!isDealerTurn) return null;
+
+		// Check if current player is the dealer
+		const dealerId = gameState.players[round.dealerIndex]?.id;
+		if (dealerId !== playerId) return null;
+
+		// Calculate sum of existing bids
+		let sumBids = 0;
+		for (const bid of Object.values(round.bids)) {
+			sumBids += bid;
+		}
+
+		// Calculate forbidden bid (the bid that would make total = totalCards)
+		const forbiddenBid = round.totalCards - sumBids;
+
+		// Only show if forbidden bid is positive (0 or negative means it's already impossible)
+		return forbiddenBid > 0 ? forbiddenBid : null;
 	};
 
 	// Check if card can be played
@@ -779,10 +844,15 @@ function App() {
 					<div className="action-message">
 						<p>{gameState.state === 'finished' ? '' : actionMessage}</p>
 					</div>
-					{/* Display bid status during bidding phase */}
-					{gameState.state === 'bidding' &&
+					{/* Display bid status during bidding and playing phases */}
+					{(gameState.state === 'bidding' || gameState.state === 'playing') &&
+						gameState.currentRound &&
 						(() => {
-							const totalBids = Object.keys(gameState.currentRound.bids).length;
+							// Calculate sum of all bids (not count of players who bid)
+							let totalBids = 0;
+							for (const bid of Object.values(gameState.currentRound.bids)) {
+								totalBids += bid;
+							}
 							const totalCards = gameState.currentRound.totalCards;
 							const difference = totalBids - totalCards;
 							let statusText;
@@ -883,6 +953,7 @@ function App() {
 						isMyTurn={isMyTurnToBid()}
 						hasBid={gameState.currentRound.bids[playerId] !== undefined}
 						currentBid={gameState.currentRound.bids[playerId]}
+						forbiddenBid={getForbiddenBid()}
 					/>
 				)}
 				{/* When a card is selected in the playing phase, show the Play Card button */}
@@ -994,7 +1065,14 @@ function App() {
 				<div className="game-setup-form">
 					<div className="form-field">
 						<label>Game ID:</label>
-						<p style={{ color: '#fff', fontSize: '18px', fontWeight: 'bold', margin: '5px 0 15px' }}>
+						<p
+							style={{
+								color: '#fff',
+								fontSize: '18px',
+								fontWeight: 'bold',
+								margin: '5px 0 15px',
+							}}
+						>
 							{gameId}
 						</p>
 					</div>
@@ -1006,6 +1084,11 @@ function App() {
 							placeholder="Enter your name"
 							value={displayName}
 							onChange={(e) => setDisplayName(e.target.value)}
+							onKeyDown={(e) => {
+								if (e.key === 'Enter' && displayName && gameId) {
+									joinGame();
+								}
+							}}
 						/>
 					</div>
 					<div className="button-group">
@@ -1018,13 +1101,58 @@ function App() {
 		return (
 			<div className="App">
 				<h1>Game Lobby</h1>
+				<button
+					onClick={goHome}
+					style={{
+						position: 'absolute',
+						top: '20px',
+						right: '20px',
+						padding: '8px 16px',
+						backgroundColor: '#666',
+						color: '#fff',
+						border: 'none',
+						borderRadius: '4px',
+						cursor: 'pointer',
+						fontSize: '14px',
+					}}
+				>
+					New Game
+				</button>
 				<div className="lobby-container">
 					<div className="share-link-section">
-						<p style={{ color: '#fff', marginBottom: '10px', fontSize: '14px' }}>
+						<p
+							style={{ color: '#fff', marginBottom: '10px', fontSize: '14px' }}
+						>
 							Share this link with friends:
 						</p>
-						<div className="share-link-box">
-							{window.location.origin + '/' + gameId}
+						<div
+							style={{
+								display: 'flex',
+								alignItems: 'center',
+								gap: '8px',
+							}}
+						>
+							<div className="share-link-box">
+								{window.location.origin + '/' + gameId}
+							</div>
+							<button
+								onClick={() =>
+									copyToClipboard(window.location.origin + '/' + gameId)
+								}
+								style={{
+									padding: '8px 12px',
+									backgroundColor: '#4CAF50',
+									color: '#fff',
+									border: 'none',
+									borderRadius: '4px',
+									cursor: 'pointer',
+									fontSize: '14px',
+									whiteSpace: 'nowrap',
+								}}
+								title="Copy link to clipboard"
+							>
+								📋 Copy
+							</button>
 						</div>
 					</div>
 					<div className="lobby-players-section">
@@ -1040,13 +1168,17 @@ function App() {
 						</div>
 					</div>
 					<div className="button-group">
-						{gameState && gameState.players.length > 0 && gameState.players[0].id === playerId && (
-							<button onClick={startGame} className="start-game-button">
-								Start Game
-							</button>
-						)}
+						{gameState &&
+							gameState.players.length > 0 &&
+							gameState.players[0].id === playerId && (
+								<button onClick={startGame} className="start-game-button">
+									Start Game
+								</button>
+							)}
 					</div>
-					{gameState && gameState.players.length > 0 && gameState.players[0].id === playerId ? (
+					{gameState &&
+					gameState.players.length > 0 &&
+					gameState.players[0].id === playerId ? (
 						<p className="waiting-message">Click Start Game when ready</p>
 					) : (
 						<p className="waiting-message">Waiting for host to start game...</p>

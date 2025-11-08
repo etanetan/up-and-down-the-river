@@ -16,8 +16,9 @@ import './BidModal.css';
  * - isMyTurn: Boolean indicating whether it is the local player's turn to bid.
  * - hasBid: Boolean indicating whether the player has already placed their bid.
  * - currentBid: The bid value if already placed.
+ * - forbiddenBid: The bid value that cannot be made (for dealer constraint), or null.
  */
-function BidModal({ onPlaceBid, isMyTurn, hasBid, currentBid }) {
+function BidModal({ onPlaceBid, isMyTurn, hasBid, currentBid, forbiddenBid }) {
 	// Local state for the bid value.
 	const [bid, setBid] = useState(currentBid !== undefined ? currentBid : 0);
 	// Flag to check if the input has been cleared at least once.
@@ -86,7 +87,25 @@ function BidModal({ onPlaceBid, isMyTurn, hasBid, currentBid }) {
 
 	return (
 		<div className={`bid-modal ${!isMyTurn && !hasBid ? 'disabled' : ''}`}>
-			{isMyTurn && !hasBid && <div className="bid-turn-indicator">YOUR TURN</div>}
+			{isMyTurn && !hasBid && (
+				<div className="bid-turn-indicator">YOUR TURN</div>
+			)}
+			{forbiddenBid !== null &&
+				forbiddenBid !== undefined &&
+				isMyTurn &&
+				!hasBid && (
+					<div
+						style={{
+							color: '#ff4444',
+							fontSize: '14px',
+							fontWeight: 'bold',
+							marginBottom: '10px',
+							textAlign: 'center',
+						}}
+					>
+						You cannot bid {forbiddenBid}
+					</div>
+				)}
 			<h2 className="bid-header">{hasBid ? 'Your Bid' : 'Place Bid'}</h2>
 			{/* Up arrow button increases bid */}
 			<button
