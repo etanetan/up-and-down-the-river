@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import './BidModal.css';
 
 /**
@@ -14,10 +14,12 @@ import './BidModal.css';
  * Props:
  * - onPlaceBid: Callback function to call when the bid is placed.
  * - isMyTurn: Boolean indicating whether it is the local player's turn to bid.
+ * - hasBid: Boolean indicating whether the player has already placed their bid.
+ * - currentBid: The bid value if already placed.
  */
-function BidModal({ onPlaceBid, isMyTurn }) {
+function BidModal({ onPlaceBid, isMyTurn, hasBid, currentBid }) {
 	// Local state for the bid value.
-	const [bid, setBid] = useState(0);
+	const [bid, setBid] = useState(currentBid !== undefined ? currentBid : 0);
 	// Flag to check if the input has been cleared at least once.
 	const [inputCleared, setInputCleared] = useState(false);
 
@@ -59,14 +61,38 @@ function BidModal({ onPlaceBid, isMyTurn }) {
 		onPlaceBid(bid);
 	};
 
+	// Keyboard shortcuts for bidding
+	useEffect(() => {
+		if (!isMyTurn || hasBid) return;
+
+		const handleKeyDown = (e) => {
+			if (e.key === 'ArrowUp') {
+				e.preventDefault();
+				setBid((prev) => prev + 1);
+				setInputCleared(true);
+			} else if (e.key === 'ArrowDown') {
+				e.preventDefault();
+				setBid((prev) => Math.max(prev - 1, 0));
+				setInputCleared(true);
+			} else if (e.key === 'Enter') {
+				e.preventDefault();
+				onPlaceBid(bid);
+			}
+		};
+
+		window.addEventListener('keydown', handleKeyDown);
+		return () => window.removeEventListener('keydown', handleKeyDown);
+	}, [isMyTurn, hasBid, bid, onPlaceBid]);
+
 	return (
-		<div className="bid-modal">
-			<h2 className="bid-header">Bid</h2>
+		<div className={`bid-modal ${!isMyTurn && !hasBid ? 'disabled' : ''}`}>
+			{isMyTurn && !hasBid && <div className="bid-turn-indicator">YOUR TURN</div>}
+			<h2 className="bid-header">{hasBid ? 'Your Bid' : 'Place Bid'}</h2>
 			{/* Up arrow button increases bid */}
 			<button
 				className="arrow-button up-arrow"
 				onClick={incrementBid}
-				disabled={!isMyTurn}
+				disabled={!isMyTurn || hasBid}
 			>
 				▲
 			</button>
@@ -78,24 +104,27 @@ function BidModal({ onPlaceBid, isMyTurn }) {
 				onChange={handleInputChange}
 				onFocus={handleInputFocus}
 				min="0"
-				disabled={!isMyTurn}
+				disabled={!isMyTurn || hasBid}
+				readOnly={hasBid}
 			/>
 			{/* Down arrow button decreases bid */}
 			<button
 				className="arrow-button down-arrow"
 				onClick={decrementBid}
-				disabled={!isMyTurn}
+				disabled={!isMyTurn || hasBid}
 			>
 				▼
 			</button>
 			{/* Place Bid button */}
-			<button
-				className="place-bid-button"
-				onClick={handlePlaceBid}
-				disabled={!isMyTurn}
-			>
-				Place Bid
-			</button>
+			{!hasBid && (
+				<button
+					className="place-bid-button"
+					onClick={handlePlaceBid}
+					disabled={!isMyTurn}
+				>
+					Place Bid
+				</button>
+			)}
 		</div>
 	);
 }

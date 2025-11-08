@@ -1,48 +1,134 @@
-/* Container for the bidding modal. Uses flex layout to arrange elements vertically. */
+/* Container for the bidding modal - compact design */
 .bid-modal {
+	position: fixed;
+	bottom: 160px;
+	right: 30px;
 	display: flex;
-	flex-direction: column;
+	flex-direction: row;
 	align-items: center;
-	padding: 20px;
-	border: 2px solid #444;
-	border-radius: 10px;
-	background-color: #f9f9f9;
-	width: 200px;
-	margin: 0 auto;
+	gap: 6px;
+	padding: 8px 10px;
+	background: rgba(255, 255, 255, 0.95);
+	border-radius: 6px;
+	box-shadow: 0 3px 8px rgba(0, 0, 0, 0.2);
+	z-index: 200;
+	transition: all 0.3s ease;
 }
 
-/* Header styling for the bid modal. */
+.bid-modal.disabled {
+	opacity: 0.5;
+	pointer-events: none;
+}
+
+/* Header styling for the bid modal */
 .bid-header {
-	margin-bottom: 10px;
-	font-size: 1.5em;
+	display: none;
 }
 
-/* Styling for the up and down arrow buttons. */
+/* Styling for the up and down arrow buttons */
 .arrow-button {
-	font-size: 1.5em;
-	background: none;
-	border: none;
-	cursor: pointer;
-	margin: 5px 0;
-}
-
-/* Styling for the numeric bid input field. */
-.bid-input {
-	width: 80px;
-	text-align: center;
-	font-size: 1.2em;
-	margin: 10px 0;
-	padding: 5px;
-}
-
-/* Styling for the Place Bid button. */
-.place-bid-button {
-	margin-top: 15px;
-	padding: 10px 20px;
 	font-size: 1em;
+	background: #f0f0f0;
+	border: 1px solid #ccc;
 	cursor: pointer;
-	background-color: #007bff;
+	margin: 0;
+	width: 28px;
+	height: 28px;
+	border-radius: 4px;
+	transition: all 0.2s ease;
+	color: #333;
+}
+
+.arrow-button:hover:not(:disabled) {
+	background: #e0e0e0;
+	border-color: #999;
+}
+
+.arrow-button:active:not(:disabled) {
+	transform: scale(0.95);
+}
+
+.arrow-button:disabled {
+	opacity: 0.3;
+	cursor: not-allowed;
+}
+
+/* Styling for the numeric bid input field */
+.bid-input {
+	width: 45px;
+	text-align: center;
+	font-size: 1.1em;
+	font-weight: 700;
+	margin: 0;
+	padding: 4px;
+	border: 1px solid #ddd;
+	border-radius: 4px;
+	background: white;
+	color: #333;
+	transition: all 0.2s ease;
+}
+
+.bid-input:focus {
+	outline: none;
+	border-color: #3498db;
+}
+
+.bid-input:disabled {
+	background: #f5f5f5;
+	cursor: not-allowed;
+}
+
+/* Styling for the Place Bid button */
+.place-bid-button {
+	margin: 0;
+	padding: 6px 12px;
+	font-size: 0.85em;
+	font-weight: 600;
+	cursor: pointer;
+	background: #3498db;
 	border: none;
-	border-radius: 5px;
+	border-radius: 4px;
 	color: #fff;
+	transition: all 0.2s ease;
+	white-space: nowrap;
+}
+
+.place-bid-button:hover:not(:disabled) {
+	background: #2980b9;
+}
+
+.place-bid-button:active:not(:disabled) {
+	transform: scale(0.98);
+}
+
+.place-bid-button:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+	background: #95a5a6;
+}
+
+/* Turn indicator */
+.bid-turn-indicator {
+	position: absolute;
+	top: -10px;
+	right: -10px;
+	background: #2ecc71;
+	color: white;
+	font-size: 0.65em;
+	font-weight: 700;
+	padding: 4px 8px;
+	border-radius: 12px;
+	box-shadow: 0 2px 6px rgba(46, 204, 113, 0.4);
+	animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+	0%, 100% {
+		transform: scale(1);
+		opacity: 1;
+	}
+	50% {
+		transform: scale(1.05);
+		opacity: 0.9;
+	}
 }

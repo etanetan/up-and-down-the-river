@@ -72,6 +72,37 @@ body {
 	font-weight: bold;
 }
 
+/* Game setup form styling */
+.game-setup-form {
+	max-width: 400px;
+	margin: 20px auto;
+	padding: 20px;
+	background: rgba(255, 255, 255, 0.1);
+	border-radius: 8px;
+}
+
+.form-field {
+	margin-bottom: 20px;
+	text-align: left;
+}
+
+.form-field label {
+	display: block;
+	margin-bottom: 5px;
+	font-weight: bold;
+	color: #fff;
+	font-size: 14px;
+}
+
+.form-field input {
+	width: 100%;
+	padding: 10px;
+	font-size: 16px;
+	border: 1px solid #ccc;
+	border-radius: 4px;
+	box-sizing: border-box;
+}
+
 /* Button and input styling */
 .button-group button,
 .lobby-section button,
@@ -126,33 +157,76 @@ input[type='number'] {
 	overflow-x: auto;
 }
 
-/* Hand card styles */
+/* Full width hand container when no sidebar */
+.main-content.full-width .hand-container {
+	left: 0;
+}
+
+/* Hand card styles - now with stacking/fanning effect */
 .hand-card {
 	background-color: white;
 	border: 1px solid #333;
 	border-radius: 6px;
 	width: 70px;
 	height: 100px;
-	margin: 0 5px;
+	margin: 0 -35px 0 0; /* Negative margin creates overlap effect */
 	display: flex;
-	justify-content: center;
-	align-items: center;
-	transition: transform 0.2s ease, box-shadow 0.2s ease;
+	flex-direction: column;
+	justify-content: flex-start;
+	align-items: flex-start;
+	padding: 4px;
+	transition: transform 0.2s ease, box-shadow 0.2s ease, z-index 0s;
 	cursor: pointer;
 	flex-shrink: 0;
+	position: relative;
+	z-index: 1;
 }
+
+.hand-card[draggable="true"] {
+	cursor: grab;
+}
+
+.hand-card[draggable="true"]:active {
+	cursor: grabbing;
+}
+
+/* Last card in hand shouldn't have negative margin */
+.hand-card:last-child {
+	margin-right: 0;
+}
+
 .hand-card .card-content {
-	font-size: 24px;
+	font-size: 20px;
 	font-weight: bold;
-	padding: 4px;
-	word-break: break-word;
+	word-break: keep-all;
+	white-space: nowrap;
+	text-align: left;
+	line-height: 1.2;
 }
+
+/* Rank displayed at top left */
+.hand-card .card-rank {
+	font-size: 20px;
+	font-weight: bold;
+	margin-bottom: 2px;
+}
+
+/* Suit displayed below rank at top left */
+.hand-card .card-suit {
+	font-size: 26px;
+	font-weight: bold;
+}
+
 .hand-card:hover {
-	transform: scale(1.05);
-	box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+	transform: translateY(-20px) scale(1.05);
+	box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+	z-index: 100;
 }
+
 .hand-card.selected {
-	background-color: rgb(200, 200, 200);
+	background-color: rgb(230, 230, 255);
+	transform: translateY(-15px);
+	z-index: 50;
 }
 
 /* Top section styling */
@@ -187,28 +261,41 @@ input[type='number'] {
 	text-align: center;
 }
 .current-trick-cards {
-	display: flex;
-	justify-content: center;
-	gap: 10px;
-	flex-wrap: wrap;
+	position: absolute;
+	width: 100%;
+	height: 100%;
+	top: 0;
+	left: 0;
+	pointer-events: none;
 }
 .played-card {
-	border: 1px solid #333;
+	border: 2px solid #333;
 	border-radius: 4px;
-	padding: 5px;
+	padding: 4px 6px;
 	text-align: center;
-	width: 70px;
+	width: 45px;
+	height: 60px;
 	background-color: #fff;
-	transition: background-color 0.3s ease;
+	transition: all 0.3s ease;
 	color: #000;
+	box-shadow: 0 3px 6px rgba(0, 0, 0, 0.2);
+	display: flex;
+	align-items: center;
+	justify-content: center;
 }
-.played-card .played-card-player {
-	font-size: 12px;
-	margin-bottom: 2px;
+.played-card .played-card-content {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	font-size: 18px;
+	line-height: 1.1;
 }
 .played-card.winning-card {
-	border: 2px solid gold;
+	border: 3px solid gold;
 	background-color: #fffae6;
+	box-shadow: 0 0 16px rgba(255, 215, 0, 0.7);
+	transform: translate(-50%, -50%) scale(1.15) !important;
 }
 
 /* Oval table styling */
@@ -231,6 +318,44 @@ input[type='number'] {
 	justify-content: center;
 	color: #000;
 	overflow: visible;
+}
+
+/* Card drop zone */
+.card-drop-zone {
+	position: absolute;
+	top: 50%;
+	left: 50%;
+	transform: translate(-50%, -50%);
+	width: 200px;
+	height: 120px;
+	border: 3px dashed rgba(255, 255, 255, 0.8);
+	border-radius: 12px;
+	background: rgba(52, 152, 219, 0.3);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	z-index: 150;
+	animation: dropZonePulse 1.5s infinite;
+	pointer-events: auto;
+}
+
+.drop-zone-text {
+	color: white;
+	font-size: 18px;
+	font-weight: bold;
+	text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+	letter-spacing: 1px;
+}
+
+@keyframes dropZonePulse {
+	0%, 100% {
+		border-color: rgba(255, 255, 255, 0.8);
+		background: rgba(52, 152, 219, 0.3);
+	}
+	50% {
+		border-color: rgba(255, 255, 255, 1);
+		background: rgba(52, 152, 219, 0.5);
+	}
 }
 
 /* Table players positioning inside the oval */
@@ -284,6 +409,11 @@ input[type='number'] {
 	display: flex;
 	justify-content: center;
 	z-index: 160;
+}
+
+/* Full width play card section when no sidebar */
+.main-content.full-width .play-card-section {
+	left: 0;
 }
 .play-card-button {
 	background: #0b6623;
@@ -341,4 +471,180 @@ input[type='number'] {
 }
 .play-again-button:hover {
 	background: #09502b;
+}
+
+/* Scoreboard toggle button for 5+ players */
+.scoreboard-toggle-button {
+	position: fixed;
+	top: 20px;
+	left: 20px;
+	background: rgba(255, 255, 255, 0.9);
+	color: #000;
+	border: 2px solid #333;
+	padding: 10px 20px;
+	font-size: 16px;
+	font-weight: bold;
+	border-radius: 8px;
+	cursor: pointer;
+	z-index: 200;
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+	transition: all 0.2s ease;
+}
+
+.scoreboard-toggle-button:hover {
+	background: rgba(255, 255, 255, 1);
+	transform: scale(1.05);
+}
+
+/* Scoreboard modal overlay */
+.scoreboard-modal-overlay {
+	position: fixed;
+	top: 0;
+	left: 0;
+	width: 100%;
+	height: 100%;
+	background: rgba(0, 0, 0, 0.7);
+	z-index: 250;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+/* Scoreboard modal content */
+.scoreboard-modal-content {
+	position: relative;
+	background: rgba(255, 255, 255, 0.95);
+	padding: 20px;
+	border-radius: 12px;
+	max-width: 90%;
+	max-height: 90%;
+	overflow-y: auto;
+	box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+}
+
+/* Close button for modal */
+.scoreboard-close-button {
+	position: absolute;
+	top: 10px;
+	right: 10px;
+	background: #ff4444;
+	color: white;
+	border: none;
+	width: 30px;
+	height: 30px;
+	border-radius: 50%;
+	font-size: 18px;
+	font-weight: bold;
+	cursor: pointer;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	transition: all 0.2s ease;
+}
+
+.scoreboard-close-button:hover {
+	background: #cc0000;
+	transform: scale(1.1);
+}
+
+/* Full width main content when no sidebar */
+.main-content.full-width {
+	margin-left: 0;
+}
+
+/* Lobby container styling */
+.lobby-container {
+	max-width: 500px;
+	margin: 20px auto;
+	padding: 30px;
+	background: rgba(255, 255, 255, 0.1);
+	border-radius: 12px;
+	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.share-link-section {
+	margin-bottom: 30px;
+}
+
+.share-link-box {
+	background: rgba(255, 255, 255, 0.15);
+	padding: 12px 15px;
+	border-radius: 6px;
+	color: #fff;
+	font-family: monospace;
+	font-size: 14px;
+	word-break: break-all;
+	border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.lobby-players-section {
+	margin-bottom: 25px;
+}
+
+.lobby-players-section h3 {
+	color: #fff;
+	margin-bottom: 15px;
+	font-size: 18px;
+}
+
+.lobby-players-list {
+	background: rgba(255, 255, 255, 0.08);
+	border-radius: 8px;
+	padding: 10px;
+	max-height: 300px;
+	overflow-y: auto;
+}
+
+.lobby-player-item {
+	display: flex;
+	align-items: center;
+	padding: 10px 15px;
+	margin: 5px 0;
+	background: rgba(255, 255, 255, 0.1);
+	border-radius: 6px;
+	color: #fff;
+	transition: all 0.2s ease;
+}
+
+.lobby-player-item:hover {
+	background: rgba(255, 255, 255, 0.15);
+	transform: translateX(5px);
+}
+
+.player-number {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 28px;
+	height: 28px;
+	background: #3498db;
+	border-radius: 50%;
+	margin-right: 12px;
+	font-weight: bold;
+	font-size: 14px;
+}
+
+.player-name {
+	font-size: 16px;
+	font-weight: 500;
+}
+
+.start-game-button {
+	background: #2ecc71 !important;
+	color: white;
+	font-size: 18px;
+	padding: 12px 40px !important;
+	transition: all 0.3s ease;
+}
+
+.start-game-button:hover {
+	background: #27ae60 !important;
+	transform: scale(1.05);
+}
+
+.waiting-message {
+	color: rgba(255, 255, 255, 0.7);
+	font-style: italic;
+	margin-top: 15px;
+	font-size: 14px;
 }

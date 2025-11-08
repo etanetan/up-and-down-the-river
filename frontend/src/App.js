@@ -119,6 +119,11 @@ function TablePlayers({ players, currentRound, currentPlayerId }) {
 					currentRound.bids[player.id] !== undefined
 						? currentRound.bids[player.id]
 						: '-';
+
+				// Check if player went over their bid (bust)
+				const tricksWon = player.tricksWon || 0;
+				const isBust = bid !== '-' && tricksWon > bid;
+
 				return (
 					<div
 						key={player.id}
@@ -129,8 +134,11 @@ function TablePlayers({ players, currentRound, currentPlayerId }) {
                 Format: "PlayerName (tricksWon/bid)" */}
 						<div className="table-player-info">
 							{player.displayName}{' '}
-							<span className="table-player-bid">
-								({player.tricksWon || 0}/{bid})
+							<span
+								className="table-player-bid"
+								style={{ color: isBust ? '#ff4444' : 'inherit' }}
+							>
+								({tricksWon}/{bid})
 							</span>
 						</div>
 						{/* Display a dealer chip ("D") if this player is the dealer */}
@@ -215,6 +223,29 @@ function Scoreboard({ gameState }) {
 							</td>
 						))}
 					</tr>
+					{/* Money lost row - only show if moneyPerMiss > 0 */}
+					{gameState.moneyPerMiss > 0 && (
+						<tr className="money-row">
+							<td>$ Lost</td>
+							{gameState.players.map((player) => {
+								let moneyLost = 0;
+								gameState.roundResults?.forEach((round) => {
+									const result = round.results.find(
+										(r) => r.playerId === player.id
+									);
+									if (result) {
+										const missed = Math.abs(result.tricksWon - result.bid);
+										moneyLost += missed * gameState.moneyPerMiss;
+									}
+								});
+								return (
+									<td key={player.id} style={{ color: 'red' }}>
+										${moneyLost.toFixed(2)}
+									</td>
+								);
+							})}
+						</tr>
+					)}
 				</tbody>
 			</table>
 		</div>
@@ -240,20 +271,58 @@ function App() {
 	const [playerId, setPlayerId] = useState('');
 	const [displayName, setDisplayName] = useState('');
 	const [creatorMaxCards, setCreatorMaxCards] = useState(10);
+	const [moneyPerMiss, setMoneyPerMiss] = useState(0);
 	const [gameState, setGameState] = useState(null);
 	const [selectedCard, setSelectedCard] = useState(null);
 	const [lastTrick, setLastTrick] = useState(null);
 	const [actionMessage, setActionMessage] = useState('');
 	const [gameOver, setGameOver] = useState(false);
+	const [isDragging, setIsDragging] = useState(false);
+	const [draggedCard, setDraggedCard] = useState(null);
+	const [isCardPlayLocked, setIsCardPlayLocked] = useState(false);
+	const [scoreboardModalOpen, setScoreboardModalOpen] = useState(false);
 
-	// On component mount, check if there's a gameId in the URL.
-	// If so, set the gameId and move to the join view.
+	// On component mount, check if there's a gameId in the URL or localStorage.
+	// If so, restore the session.
 	useEffect(() => {
 		const path = window.location.pathname;
 		const gameIdFromUrl = path.length > 1 ? path.substring(1) : null;
+
+		// Try to restore from localStorage
+		const savedGameId = localStorage.getItem('gameId');
+		const savedPlayerId = localStorage.getItem('playerId');
+		const savedDisplayName = localStorage.getItem('displayName');
+
 		if (gameIdFromUrl) {
-			setGameId(gameIdFromUrl);
-			setView('join');
+			// If we have a gameId in the URL
+			if (savedGameId === gameIdFromUrl && savedPlayerId && savedDisplayName) {
+				// Restore session for THIS game
+				setGameId(savedGameId);
+				setPlayerId(savedPlayerId);
+				setDisplayName(savedDisplayName);
+				setView('lobby');
+				fetchGameState();
+			} else {
+				// Clear any saved session for a different game
+				localStorage.removeItem('gameId');
+				localStorage.removeItem('playerId');
+				localStorage.removeItem('displayName');
+				setGameId(gameIdFromUrl);
+				setView('join');
+			}
+		} else if (savedGameId && savedPlayerId && savedDisplayName) {
+			// No URL gameId, but we have a saved session - restore it
+			setGameId(savedGameId);
+			setPlayerId(savedPlayerId);
+			setDisplayName(savedDisplayName);
+			setView('lobby');
+			fetchGameState();
+		} else {
+			// No URL gameId and no saved session - clear everything and show home
+			localStorage.removeItem('gameId');
+			localStorage.removeItem('playerId');
+			localStorage.removeItem('displayName');
+			setView('home');
 		}
 	}, []);
 
@@ -262,11 +331,17 @@ function App() {
 		const response = await fetch(`${API_URL}/games/create`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ displayName, creatorMaxCards }),
+			body: JSON.stringify({ displayName, creatorMaxCards, moneyPerMiss }),
 		});
 		const data = await response.json();
 		setGameId(data.gameId);
 		setPlayerId(data.playerId);
+
+		// Save to localStorage
+		localStorage.setItem('gameId', data.gameId);
+		localStorage.setItem('playerId', data.playerId);
+		localStorage.setItem('displayName', displayName);
+
 		setView('lobby');
 	};
 
@@ -283,6 +358,12 @@ function App() {
 		});
 		const data = await response.json();
 		setPlayerId(data.playerId);
+
+		// Save to localStorage
+		localStorage.setItem('gameId', gameId);
+		localStorage.setItem('playerId', data.playerId);
+		localStorage.setItem('displayName', displayName);
+
 		setView('lobby');
 	};
 
@@ -308,13 +389,22 @@ function App() {
 
 	// Play a selected card.
 	const playSelectedCard = async () => {
-		if (!selectedCard) return;
+		if (!selectedCard || isCardPlayLocked) return;
+
+		// Lock card plays for 1 second
+		setIsCardPlayLocked(true);
+
 		await fetch(`${API_URL}/games/play`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ gameId, playerId, card: selectedCard }),
 		});
 		setSelectedCard(null);
+
+		// Unlock after 1 second
+		setTimeout(() => {
+			setIsCardPlayLocked(false);
+		}, 1000);
 	};
 
 	// Fetch the current game state from the backend.
@@ -446,8 +536,99 @@ function App() {
 		return round.bidOrder[round.currentBidTurn] === playerId;
 	};
 
+	// Check if card can be played
+	const canPlayCard = (card) => {
+		if (!gameState || gameState.state !== 'playing' || isCardPlayLocked)
+			return false;
+
+		const me = gameState.players.find((p) => p.id === playerId);
+		if (!me) return false;
+
+		const round = gameState.currentRound;
+		if (!round || !round.currentTrick) return false;
+
+		// Check if it's my turn
+		const currentPlayerIndex =
+			(round.trickLeader + round.trickTurnIndex) % gameState.players.length;
+		const currentPlayer = gameState.players[currentPlayerIndex];
+		if (currentPlayer.id !== playerId) return false;
+
+		// Check if card follows suit
+		if (round.currentTrick.plays.length > 0) {
+			const leadSuit = round.currentTrick.plays[0].card.suit.toLowerCase();
+			const hasLeadSuit = me.hand.some(
+				(c) =>
+					(!c.isJoker && c.suit.toLowerCase() === leadSuit) ||
+					(leadSuit === 'spades' && c.isJoker)
+			);
+			if (hasLeadSuit) {
+				if (
+					leadSuit === 'spades' &&
+					!card.isJoker &&
+					card.suit.toLowerCase() !== 'spades'
+				) {
+					return false;
+				} else if (card.suit.toLowerCase() !== leadSuit) {
+					return false;
+				}
+			}
+		}
+		return true;
+	};
+
 	// Render a card from the player's hand. The card is clickable when it's the playing phase.
 	const renderHandCard = (card, index) => {
+		// Get rank and suit info for compact display
+		let rankText, suitSymbol, suitColor;
+
+		if (card.isJoker) {
+			rankText = card.jokerName;
+			suitSymbol = '';
+			suitColor = 'black';
+		} else {
+			// Determine rank text
+			switch (card.rank) {
+				case 11:
+					rankText = 'J';
+					break;
+				case 12:
+					rankText = 'Q';
+					break;
+				case 13:
+					rankText = 'K';
+					break;
+				case 14:
+					rankText = 'A';
+					break;
+				default:
+					rankText = card.rank;
+			}
+
+			// Determine suit symbol and color
+			switch (card.suit.toLowerCase()) {
+				case 'hearts':
+					suitSymbol = '♥';
+					suitColor = 'red';
+					break;
+				case 'diamonds':
+					suitSymbol = '♦';
+					suitColor = 'red';
+					break;
+				case 'spades':
+					suitSymbol = '♠';
+					suitColor = 'black';
+					break;
+				case 'clubs':
+					suitSymbol = '♣';
+					suitColor = 'black';
+					break;
+				default:
+					suitSymbol = card.suit;
+			}
+		}
+
+		const isCardPlayable = canPlayCard(card);
+
 		return (
 			<div
 				key={index}
@@ -459,6 +640,18 @@ function App() {
 						? 'selected'
 						: ''
 				}`}
+				draggable={isCardPlayable}
+				onDragStart={(e) => {
+					if (isCardPlayable) {
+						setIsDragging(true);
+						setDraggedCard(card);
+						e.dataTransfer.effectAllowed = 'move';
+					}
+				}}
+				onDragEnd={() => {
+					setIsDragging(false);
+					setDraggedCard(null);
+				}}
 				onClick={() => {
 					if (gameState && gameState.state === 'playing') {
 						// Toggle selection: if already selected, unselect; otherwise, select this card.
@@ -473,8 +666,11 @@ function App() {
 					}
 				}}
 			>
-				<div className="card-content">
-					{card.isJoker ? formatCard(card) : formatCard(card)}
+				<div className="card-rank" style={{ color: suitColor }}>
+					{rankText}
+				</div>
+				<div className="card-suit" style={{ color: suitColor }}>
+					{suitSymbol}
 				</div>
 			</div>
 		);
@@ -485,23 +681,47 @@ function App() {
 		if (!round || !round.currentTrick) return null;
 		// Use lastTrick if set (for animation/delay effect), otherwise use the current trick.
 		const trickToShow = lastTrick || round.currentTrick;
+
+		const numPlayers = gameState.players.length;
+		const currentIndex = gameState.players.findIndex((p) => p.id === playerId);
+		const offset = 90 - (360 / numPlayers) * currentIndex;
+
 		return (
 			<div className="current-trick-cards">
 				{trickToShow.plays.map((play, index) => {
 					const player = gameState.players.find((p) => p.id === play.playerId);
+					const playerIndex = gameState.players.findIndex(
+						(p) => p.id === play.playerId
+					);
+
 					// Determine if this card is the winning card.
 					const isWinning =
 						trickToShow.winnerID &&
 						play.playerId === trickToShow.winnerID &&
 						trickToShow.plays.length === gameState.players.length;
+
+					// Calculate position based on player's position around the table
+					const angle = (360 / numPlayers) * playerIndex + offset;
+					const angleRad = (angle * Math.PI) / 180;
+					// Position cards closer to center than player names
+					const radiusX = 140;
+					const radiusY = 100;
+					const x = radiusX * Math.cos(angleRad);
+					const y = radiusY * Math.sin(angleRad);
+					const left = 50 + (x / 400) * 100;
+					const top = 50 + (y / 300) * 100;
+
 					return (
 						<div
 							key={index}
 							className={`played-card ${isWinning ? 'winning-card' : ''}`}
+							style={{
+								position: 'absolute',
+								left: `${left}%`,
+								top: `${top}%`,
+								transform: 'translate(-50%, -50%)',
+							}}
 						>
-							<div className="played-card-player">
-								{player ? player.displayName : play.playerId}
-							</div>
 							<div className="played-card-content">
 								{play.card.isJoker
 									? formatCard(play.card)
@@ -559,6 +779,41 @@ function App() {
 					<div className="action-message">
 						<p>{gameState.state === 'finished' ? '' : actionMessage}</p>
 					</div>
+					{/* Display bid status during bidding phase */}
+					{gameState.state === 'bidding' &&
+						(() => {
+							const totalBids = Object.keys(gameState.currentRound.bids).length;
+							const totalCards = gameState.currentRound.totalCards;
+							const difference = totalBids - totalCards;
+							let statusText;
+							let statusColor;
+
+							if (difference > 0) {
+								statusText = `${totalBids} bids, ${totalCards} available, ${difference} over`;
+								statusColor = '#ff4444';
+							} else if (difference < 0) {
+								statusText = `${totalBids} bids, ${totalCards} available, ${Math.abs(
+									difference
+								)} under`;
+								statusColor = '#4CAF50';
+							} else {
+								statusText = `${totalBids} bids, ${totalCards} available, even`;
+								statusColor = '#FFA500';
+							}
+
+							return (
+								<div
+									className="bid-status"
+									style={{
+										fontSize: '16px',
+										fontWeight: 'bold',
+										color: statusColor,
+									}}
+								>
+									{statusText}
+								</div>
+							);
+						})()}
 				</div>
 				{/* Table container holds the central oval table with trick cards and players */}
 				<div className="table-container">
@@ -574,6 +829,43 @@ function App() {
 								currentPlayerId={playerId}
 							/>
 						)}
+						{/* Drop zone for dragging cards */}
+						{isDragging && (
+							<div
+								className="card-drop-zone"
+								onDragOver={(e) => {
+									e.preventDefault();
+									e.dataTransfer.dropEffect = 'move';
+								}}
+								onDrop={async (e) => {
+									e.preventDefault();
+									if (draggedCard && !isCardPlayLocked) {
+										// Lock card plays for 1 second
+										setIsCardPlayLocked(true);
+
+										await fetch(`${API_URL}/games/play`, {
+											method: 'POST',
+											headers: { 'Content-Type': 'application/json' },
+											body: JSON.stringify({
+												gameId,
+												playerId,
+												card: draggedCard,
+											}),
+										});
+										setSelectedCard(null);
+										setIsDragging(false);
+										setDraggedCard(null);
+
+										// Unlock after 1 second
+										setTimeout(() => {
+											setIsCardPlayLocked(false);
+										}, 1000);
+									}
+								}}
+							>
+								<div className="drop-zone-text">PLAY CARD</div>
+							</div>
+						)}
 					</div>
 				</div>
 				<div className="game-controls">
@@ -584,12 +876,15 @@ function App() {
 						</div>
 					)}
 				</div>
-				{/* Show the vertical BidModal during bidding phase if the current player hasn't bid yet */}
-				{gameState &&
-					gameState.state === 'bidding' &&
-					!gameState.currentRound.bids[playerId] && (
-						<BidModal onPlaceBid={handlePlaceBid} isMyTurn={isMyTurnToBid()} />
-					)}
+				{/* Show the vertical BidModal during bidding phase */}
+				{gameState && gameState.state === 'bidding' && (
+					<BidModal
+						onPlaceBid={handlePlaceBid}
+						isMyTurn={isMyTurnToBid()}
+						hasBid={gameState.currentRound.bids[playerId] !== undefined}
+						currentBid={gameState.currentRound.bids[playerId]}
+					/>
+				)}
 				{/* When a card is selected in the playing phase, show the Play Card button */}
 				{selectedCard && (
 					<div className="play-card-section">
@@ -643,21 +938,52 @@ function App() {
 		return (
 			<div className="App">
 				<h1>Up and Down the River</h1>
-				<input
-					type="text"
-					placeholder="Display Name"
-					value={displayName}
-					onChange={(e) => setDisplayName(e.target.value)}
-				/>
-				<input
-					type="number"
-					placeholder="Max Cards (e.g., 10)"
-					value={creatorMaxCards}
-					onChange={(e) => setCreatorMaxCards(parseInt(e.target.value, 10))}
-				/>
-				<div className="button-group">
-					<button onClick={createGame}>Create Game</button>
-					<button onClick={joinGame}>Join Game</button>
+				<div className="game-setup-form">
+					<div className="form-field">
+						<label htmlFor="displayName">Your Name:</label>
+						<input
+							id="displayName"
+							type="text"
+							placeholder="Enter your name"
+							value={displayName}
+							onChange={(e) => setDisplayName(e.target.value)}
+						/>
+					</div>
+					<div className="form-field">
+						<label htmlFor="maxCards">Max Cards:</label>
+						<input
+							id="maxCards"
+							type="number"
+							placeholder="e.g., 10"
+							value={creatorMaxCards}
+							onChange={(e) => setCreatorMaxCards(parseInt(e.target.value, 10))}
+						/>
+					</div>
+					<div className="form-field">
+						<label htmlFor="moneyPerMiss">$ Per Missed Trick:</label>
+						<input
+							id="moneyPerMiss"
+							type="number"
+							placeholder="0.00"
+							value={moneyPerMiss}
+							onChange={(e) => setMoneyPerMiss(parseFloat(e.target.value) || 0)}
+							step="0.01"
+						/>
+						<small
+							style={{
+								color: '#ccc',
+								fontSize: '12px',
+								marginTop: '2px',
+								display: 'block',
+							}}
+						>
+							Set to 0 to play without stakes
+						</small>
+					</div>
+					<div className="button-group">
+						<button onClick={createGame}>Create Game</button>
+						<button onClick={joinGame}>Join Game</button>
+					</div>
 				</div>
 			</div>
 		);
@@ -665,41 +991,113 @@ function App() {
 		return (
 			<div className="App">
 				<h1>Join Game</h1>
-				<p>Game ID: {gameId}</p>
-				<input
-					type="text"
-					placeholder="Display Name"
-					value={displayName}
-					onChange={(e) => setDisplayName(e.target.value)}
-				/>
-				<button onClick={joinGame}>Join Game</button>
+				<div className="game-setup-form">
+					<div className="form-field">
+						<label>Game ID:</label>
+						<p style={{ color: '#fff', fontSize: '18px', fontWeight: 'bold', margin: '5px 0 15px' }}>
+							{gameId}
+						</p>
+					</div>
+					<div className="form-field">
+						<label htmlFor="joinDisplayName">Your Name:</label>
+						<input
+							id="joinDisplayName"
+							type="text"
+							placeholder="Enter your name"
+							value={displayName}
+							onChange={(e) => setDisplayName(e.target.value)}
+						/>
+					</div>
+					<div className="button-group">
+						<button onClick={joinGame}>Join Game</button>
+					</div>
+				</div>
 			</div>
 		);
 	} else if (view === 'lobby') {
 		return (
 			<div className="App">
-				<h1>Lobby</h1>
-				<p>
-					Share this link with friends:
-					<br />
-					{window.location.origin + '/' + gameId}
-				</p>
-				<div className="lobby-players">
-					<h4>Players in Lobby:</h4>
-					{gameState &&
-						gameState.players.map((p) => <div key={p.id}>{p.displayName}</div>)}
+				<h1>Game Lobby</h1>
+				<div className="lobby-container">
+					<div className="share-link-section">
+						<p style={{ color: '#fff', marginBottom: '10px', fontSize: '14px' }}>
+							Share this link with friends:
+						</p>
+						<div className="share-link-box">
+							{window.location.origin + '/' + gameId}
+						</div>
+					</div>
+					<div className="lobby-players-section">
+						<h3>Players in Lobby ({gameState?.players.length || 0})</h3>
+						<div className="lobby-players-list">
+							{gameState &&
+								gameState.players.map((p, index) => (
+									<div key={p.id} className="lobby-player-item">
+										<span className="player-number">{index + 1}</span>
+										<span className="player-name">{p.displayName}</span>
+									</div>
+								))}
+						</div>
+					</div>
+					<div className="button-group">
+						{gameState && gameState.players.length > 0 && gameState.players[0].id === playerId && (
+							<button onClick={startGame} className="start-game-button">
+								Start Game
+							</button>
+						)}
+					</div>
+					{gameState && gameState.players.length > 0 && gameState.players[0].id === playerId ? (
+						<p className="waiting-message">Click Start Game when ready</p>
+					) : (
+						<p className="waiting-message">Waiting for host to start game...</p>
+					)}
 				</div>
-				<button onClick={startGame}>Start Game</button>
-				<p>Waiting for game to start...</p>
 			</div>
 		);
 	} else if (view === 'game') {
 		return (
 			<div className="App">
-				<div className="scoreboard-container">
-					<Scoreboard gameState={gameState} />
+				{gameState && gameState.players.length < 5 && (
+					<div className="scoreboard-container">
+						<Scoreboard gameState={gameState} />
+					</div>
+				)}
+				{gameState && gameState.players.length >= 5 && (
+					<>
+						<button
+							className="scoreboard-toggle-button"
+							onClick={() => setScoreboardModalOpen(!scoreboardModalOpen)}
+						>
+							📊 Scoreboard
+						</button>
+						{scoreboardModalOpen && (
+							<div
+								className="scoreboard-modal-overlay"
+								onClick={() => setScoreboardModalOpen(false)}
+							>
+								<div
+									className="scoreboard-modal-content"
+									onClick={(e) => e.stopPropagation()}
+								>
+									<button
+										className="scoreboard-close-button"
+										onClick={() => setScoreboardModalOpen(false)}
+									>
+										✕
+									</button>
+									<Scoreboard gameState={gameState} />
+								</div>
+							</div>
+						)}
+					</>
+				)}
+				<div
+					className={`main-content ${
+						gameState && gameState.players.length >= 5 ? 'full-width' : ''
+					}`}
+				>
+					{renderGameBoard()}
 				</div>
-				<div className="main-content">{renderGameBoard()}</div>
 			</div>
 		);
 	}
