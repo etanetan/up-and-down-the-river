@@ -2,10 +2,11 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import BidModal from './BidModal'; // Import the vertical bidding modal component
 import './App.css';
 
-// Set the backend API URL. When running locally you might use localhost,
-// but here we're using the Cloud Run URL.
-//const API_URL = 'https://upanddownbackend-755936114859.us-central1.run.app';
-const API_URL = 'http://localhost:8080';
+// Backend API URL. In production (Vercel) we hit Cloud Run; for local dev
+// set REACT_APP_API_URL=http://localhost:8080 in frontend/.env.local.
+const API_URL =
+	process.env.REACT_APP_API_URL ||
+	'https://upanddownbackend-755936114859.us-central1.run.app';
 
 // Pure helper used by both the final-game scoreboard and the in-game tracker.
 const moneyLostForPlayer = (gameState, playerId) => {
