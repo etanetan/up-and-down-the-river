@@ -1,0 +1,16 @@
+rules_version = '2';
+
+// Frontend listens to game state directly via Firestore; only the backend
+// (admin SDK with service-account creds) is allowed to write. Anonymous reads
+// are intentional — anyone with a 6-character game code can watch a game.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /games/{gameId} {
+      allow read: if true;
+      allow write: if false;
+    }
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

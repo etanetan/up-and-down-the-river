@@ -1,7 +1,13 @@
+// Package handlers contains the HTTP entry points for the game. Every
+// mutation reads the game from Firestore inside a transaction, applies its
+// changes, and writes the new state back. The server keeps no in-memory game
+// state, so Cloud Run is free to scale instances horizontally and to zero.
 package handlers
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"math"
@@ -10,36 +16,50 @@ import (
 	"strings"
 	"time"
 
-	"github.com/etanetan/up-and-down-the-river/backend/internal/game"
 	"github.com/google/uuid"
-)
 
-// broadcastState marshals the current game state and publishes it to all SSE
-// subscribers. Callers may hold game.GamesMu when invoking this; channel sends
-// are non-blocking.
-func broadcastState(g *game.Game) {
-	payload, err := json.Marshal(g)
-	if err != nil {
-		log.Printf("broadcastState marshal: %v", err)
-		return
-	}
-	g.Publish(payload)
-}
+	"github.com/etanetan/up-and-down-the-river/backend/internal/game"
+	"github.com/etanetan/up-and-down-the-river/backend/internal/store"
+)
 
 const letterBytes = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
+// trickOverDisplayDuration is how long the "X won the trick!" snapshot stays
+// in Firestore before we write the next-trick state. The handler holds the
+// HTTP request open for this duration so Cloud Run keeps the instance alive.
+const trickOverDisplayDuration = 2 * time.Second
+
+// Handlers wires HTTP routes to the persistent store.
+type Handlers struct {
+	store *store.Store
+}
+
+// New returns a Handlers with the given store.
+func New(s *store.Store) *Handlers {
+	return &Handlers{store: s}
+}
+
 func generateGameID() string {
-	rand.Seed(time.Now().UnixNano())
 	letters := make([]byte, 3)
 	for i := range letters {
 		letters[i] = letterBytes[rand.Intn(len(letterBytes))]
 	}
-	numbers := rand.Intn(1000) // 0-999
+	numbers := rand.Intn(1000)
 	return string(letters) + fmt.Sprintf("%03d", numbers)
 }
 
-// CreateGameHandler creates a new game and adds the creator.
-func CreateGameHandler(w http.ResponseWriter, r *http.Request) {
+func writeJSON(w http.ResponseWriter, status int, v interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(v)
+}
+
+func notFound(w http.ResponseWriter, msg string) {
+	http.Error(w, msg, http.StatusNotFound)
+}
+
+// CreateGameHandler creates a new game document.
+func (h *Handlers) CreateGameHandler(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		DisplayName     string  `json:"displayName"`
 		CreatorMaxCards int     `json:"creatorMaxCards"`
@@ -53,34 +73,31 @@ func CreateGameHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "displayName is required", http.StatusBadRequest)
 		return
 	}
-	//gameID := uuid.New().String()
-	gameID := generateGameID()
 
+	gameID := generateGameID()
 	creator := &game.Player{
 		ID:          uuid.New().String(),
 		DisplayName: req.DisplayName,
 	}
-	game.GamesMu.Lock()
-	defer game.GamesMu.Unlock()
-	newGame := &game.Game{
+	g := &game.Game{
 		ID:              gameID,
 		Players:         []*game.Player{creator},
 		State:           "lobby",
 		CreatorMaxCards: req.CreatorMaxCards,
 		MoneyPerMiss:    req.MoneyPerMiss,
 	}
-	game.Games[gameID] = newGame
-	resp := map[string]string{
+	if err := h.store.Create(r.Context(), g); err != nil {
+		http.Error(w, "could not create game: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{
 		"gameId":   gameID,
 		"playerId": creator.ID,
-		"link":     fmt.Sprintf("http://%s/games/%s", r.Host, gameID),
-	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	})
 }
 
-// JoinGameHandler allows a new player to join an existing game.
-func JoinGameHandler(w http.ResponseWriter, r *http.Request) {
+// JoinGameHandler adds a new player to an existing lobby.
+func (h *Handlers) JoinGameHandler(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		GameID      string `json:"gameId"`
 		DisplayName string `json:"displayName"`
@@ -93,39 +110,33 @@ func JoinGameHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "gameId and displayName are required", http.StatusBadRequest)
 		return
 	}
-	game.GamesMu.Lock()
-	g, ok := game.Games[req.GameID]
-	game.GamesMu.Unlock()
-	if !ok {
-		http.Error(w, "game not found", http.StatusNotFound)
-		return
-	}
-	if g.State != "lobby" {
-		http.Error(w, "game already started", http.StatusBadRequest)
-		return
-	}
-	if len(g.Players) >= 6 {
-		http.Error(w, "game is full", http.StatusBadRequest)
-		return
-	}
+
 	newPlayer := &game.Player{
 		ID:          uuid.New().String(),
 		DisplayName: req.DisplayName,
 	}
-	game.GamesMu.Lock()
-	g.Players = append(g.Players, newPlayer)
-	game.GamesMu.Unlock()
-	broadcastState(g)
-	resp := map[string]string{
+	_, err := h.store.Update(r.Context(), req.GameID, func(g *game.Game) error {
+		if g.State != "lobby" {
+			return httpErr(http.StatusBadRequest, "game already started")
+		}
+		if len(g.Players) >= 6 {
+			return httpErr(http.StatusBadRequest, "game is full")
+		}
+		g.Players = append(g.Players, newPlayer)
+		return nil
+	})
+	if err != nil {
+		respondErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{
 		"gameId":   req.GameID,
 		"playerId": newPlayer.ID,
-	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	})
 }
 
-// StartGameHandler initializes the game, deals cards, and begins the bidding phase.
-func StartGameHandler(w http.ResponseWriter, r *http.Request) {
+// StartGameHandler deals cards and transitions the game to the bidding phase.
+func (h *Handlers) StartGameHandler(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		GameID string `json:"gameId"`
 	}
@@ -133,78 +144,62 @@ func StartGameHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	game.GamesMu.Lock()
-	g, ok := game.Games[req.GameID]
-	game.GamesMu.Unlock()
-	if !ok {
-		http.Error(w, "game not found", http.StatusNotFound)
+
+	_, err := h.store.Update(r.Context(), req.GameID, func(g *game.Game) error {
+		if g.State != "lobby" {
+			return httpErr(http.StatusBadRequest, "game already started")
+		}
+		if len(g.Players) < 2 {
+			return httpErr(http.StatusBadRequest, "need at least 2 players to start")
+		}
+		maxPossible := int(math.Floor(54.0 / float64(len(g.Players))))
+		desired := g.CreatorMaxCards
+		if desired <= 0 || desired > maxPossible {
+			desired = maxPossible
+		}
+		g.RoundSequence = game.ComputeRoundSequence(desired)
+		g.CurrentRoundIndex = 0
+
+		dealerIndex := rand.Intn(len(g.Players))
+		round := &game.Round{
+			RoundNumber:    g.CurrentRoundIndex + 1,
+			TotalCards:     g.RoundSequence[g.CurrentRoundIndex],
+			DealerIndex:    dealerIndex,
+			Bids:           make(map[string]int),
+			BidOrder:       []string{},
+			CurrentBidTurn: 0,
+		}
+		g.CurrentRound = round
+		g.State = "bidding"
+
+		deck := game.CreateDeck()
+		game.ShuffleDeck(deck)
+		for _, p := range g.Players {
+			p.Hand = []game.Card{}
+			p.CurrentBid = 0
+			p.TricksWon = 0
+		}
+		if err := game.DealCards(deck, g.Players, round.TotalCards); err != nil {
+			return httpErr(http.StatusInternalServerError, "error dealing cards: "+err.Error())
+		}
+
+		n := len(g.Players)
+		for i := 1; i < n; i++ {
+			index := (dealerIndex + i) % n
+			round.BidOrder = append(round.BidOrder, g.Players[index].ID)
+		}
+		round.BidOrder = append(round.BidOrder, g.Players[dealerIndex].ID)
+		return nil
+	})
+	if err != nil {
+		respondErr(w, err)
 		return
 	}
-	if g.State != "lobby" {
-		http.Error(w, "game already started", http.StatusBadRequest)
-		return
-	}
-	if len(g.Players) < 2 {
-		http.Error(w, "need at least 2 players to start", http.StatusBadRequest)
-		return
-	}
-	// Determine maximum cards per round.
-	maxPossible := int(math.Floor(54.0 / float64(len(g.Players))))
-	desired := g.CreatorMaxCards
-	if desired <= 0 || desired > maxPossible {
-		desired = maxPossible
-	}
-	g.RoundSequence = game.ComputeRoundSequence(desired)
-	g.CurrentRoundIndex = 0
-	// Randomly choose a dealer.
-	dealerIndex := rand.Intn(len(g.Players))
-	round := &game.Round{
-		RoundNumber:    g.CurrentRoundIndex + 1,
-		TotalCards:     g.RoundSequence[g.CurrentRoundIndex],
-		DealerIndex:    dealerIndex,
-		Bids:           make(map[string]int),
-		BidOrder:       []string{},
-		CurrentBidTurn: 0,
-	}
-	g.CurrentRound = round
-	g.State = "bidding"
-	// Deal cards.
-	deck := game.CreateDeck()
-	game.ShuffleDeck(deck)
-	for _, p := range g.Players {
-		p.Hand = []game.Card{}
-		p.CurrentBid = 0
-		p.TricksWon = 0
-	}
-	if err := game.DealCards(deck, g.Players, round.TotalCards); err != nil {
-		http.Error(w, "error dealing cards: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	// Set bidding order: start with the player to the left of the dealer, then dealer last.
-	n := len(g.Players)
-	var biddingOrder []string
-	for i := 1; i < n; i++ {
-		index := (dealerIndex + i) % n
-		biddingOrder = append(biddingOrder, g.Players[index].ID)
-	}
-	biddingOrder = append(biddingOrder, g.Players[dealerIndex].ID)
-	round.BidOrder = biddingOrder
-	round.CurrentBidTurn = 0
-	broadcastState(g)
-	resp := map[string]interface{}{
-		"message":       "Game started; bidding phase begins",
-		"gameId":        g.ID,
-		"currentRound":  round,
-		"biddingOrder":  biddingOrder,
-		"players":       g.Players,
-		"roundSequence": g.RoundSequence,
-	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	writeJSON(w, http.StatusOK, map[string]string{"message": "Game started"})
 }
 
-// BidHandler accepts a bid from a player.
-func BidHandler(w http.ResponseWriter, r *http.Request) {
+// BidHandler records a player's bid; transitions to playing when all bids in.
+func (h *Handlers) BidHandler(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		GameID   string `json:"gameId"`
 		PlayerID string `json:"playerId"`
@@ -214,93 +209,83 @@ func BidHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	game.GamesMu.Lock()
-	g, ok := game.Games[req.GameID]
-	game.GamesMu.Unlock()
-	if !ok {
-		http.Error(w, "game not found", http.StatusNotFound)
-		return
-	}
-	if g.State != "bidding" {
-		http.Error(w, "not in bidding phase", http.StatusBadRequest)
-		return
-	}
-	round := g.CurrentRound
-	// Ensure it is the player's turn.
-	currentBidderID := round.BidOrder[round.CurrentBidTurn]
-	if currentBidderID != req.PlayerID {
-		http.Error(w, "not your turn to bid", http.StatusBadRequest)
-		return
-	}
-	if req.Bid < 0 || req.Bid > round.TotalCards {
-		http.Error(w, "invalid bid amount", http.StatusBadRequest)
-		return
-	}
-	// If the bidder is the dealer (last bidder) and the round has more than one card, enforce the restriction.
-	isDealer := (round.BidOrder[round.CurrentBidTurn] == g.Players[round.DealerIndex].ID)
-	if isDealer && round.TotalCards > 1 {
-		sumBids := 0
-		for _, b := range round.Bids {
-			sumBids += b
+
+	_, err := h.store.Update(r.Context(), req.GameID, func(g *game.Game) error {
+		if g.State != "bidding" {
+			return httpErr(http.StatusBadRequest, "not in bidding phase")
 		}
-		if sumBids+req.Bid == round.TotalCards {
-			http.Error(w, "dealer bid cannot make total bids equal total cards", http.StatusBadRequest)
-			return
+		round := g.CurrentRound
+		if round.BidOrder[round.CurrentBidTurn] != req.PlayerID {
+			return httpErr(http.StatusBadRequest, "not your turn to bid")
 		}
-	}
-	round.Bids[req.PlayerID] = req.Bid
-	for _, p := range g.Players {
-		if p.ID == req.PlayerID {
-			p.CurrentBid = req.Bid
-			p.BidOrder = round.CurrentBidTurn
-			break
+		if req.Bid < 0 || req.Bid > round.TotalCards {
+			return httpErr(http.StatusBadRequest, "invalid bid amount")
 		}
-	}
-	round.CurrentBidTurn++
-	if round.CurrentBidTurn >= len(round.BidOrder) {
-		g.State = "playing"
-		highestBid := -1
-		leaderID := ""
-		leaderOrder := len(g.Players) + 1
-		for pid, bid := range round.Bids {
-			var order int
-			for _, p := range g.Players {
-				if p.ID == pid {
-					order = p.BidOrder
-					break
-				}
+		isDealer := round.BidOrder[round.CurrentBidTurn] == g.Players[round.DealerIndex].ID
+		if isDealer && round.TotalCards > 1 {
+			sumBids := 0
+			for _, b := range round.Bids {
+				sumBids += b
 			}
-			if bid > highestBid || (bid == highestBid && order < leaderOrder) {
-				highestBid = bid
-				leaderID = pid
-				leaderOrder = order
+			if sumBids+req.Bid == round.TotalCards {
+				return httpErr(http.StatusBadRequest, "dealer bid cannot make total bids equal total cards")
 			}
 		}
-		leaderIndex := 0
-		for i, p := range g.Players {
-			if p.ID == leaderID {
-				leaderIndex = i
+		round.Bids[req.PlayerID] = req.Bid
+		for _, p := range g.Players {
+			if p.ID == req.PlayerID {
+				p.CurrentBid = req.Bid
+				p.BidOrder = round.CurrentBidTurn
 				break
 			}
 		}
-		round.CurrentTrick = &game.Trick{
-			LeaderID: leaderID,
-			Plays:    []game.Play{},
+		round.CurrentBidTurn++
+		if round.CurrentBidTurn >= len(round.BidOrder) {
+			g.State = "playing"
+			highestBid := -1
+			leaderID := ""
+			leaderOrder := len(g.Players) + 1
+			for pid, bid := range round.Bids {
+				var order int
+				for _, p := range g.Players {
+					if p.ID == pid {
+						order = p.BidOrder
+						break
+					}
+				}
+				if bid > highestBid || (bid == highestBid && order < leaderOrder) {
+					highestBid = bid
+					leaderID = pid
+					leaderOrder = order
+				}
+			}
+			leaderIndex := 0
+			for i, p := range g.Players {
+				if p.ID == leaderID {
+					leaderIndex = i
+					break
+				}
+			}
+			round.CurrentTrick = &game.Trick{
+				LeaderID: leaderID,
+				Plays:    []game.Play{},
+			}
+			round.TrickTurnIndex = 0
+			round.TrickLeader = leaderIndex
 		}
-		round.TrickTurnIndex = 0
-		round.TrickLeader = leaderIndex
+		return nil
+	})
+	if err != nil {
+		respondErr(w, err)
+		return
 	}
-	broadcastState(g)
-	resp := map[string]interface{}{
-		"message": "Bid accepted",
-		"bids":    round.Bids,
-	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	writeJSON(w, http.StatusOK, map[string]string{"message": "Bid accepted"})
 }
 
-// PlayHandler processes a card played by a player.
-func PlayHandler(w http.ResponseWriter, r *http.Request) {
+// PlayHandler processes a card played by a player. If the play completes the
+// trick, the handler writes the trick-over snapshot, waits 2s so clients can
+// display the winner, then writes the next-trick (or game-end) snapshot.
+func (h *Handlers) PlayHandler(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		GameID   string    `json:"gameId"`
 		PlayerID string    `json:"playerId"`
@@ -311,250 +296,208 @@ func PlayHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	game.GamesMu.Lock()
-	g, ok := game.Games[req.GameID]
-	game.GamesMu.Unlock()
-	if !ok {
-		http.Error(w, "game not found", http.StatusNotFound)
-		return
-	}
-
-	if g.State != "playing" {
-		http.Error(w, "not in playing phase", http.StatusBadRequest)
-		return
-	}
-
-	round := g.CurrentRound
-	expectedPlayerID := g.Players[(round.TrickLeader+round.TrickTurnIndex)%len(g.Players)].ID
-	if req.PlayerID != expectedPlayerID {
-		http.Error(w, "not your turn to play", http.StatusBadRequest)
-		return
-	}
-
-	player, _ := game.FindPlayer(g, req.PlayerID)
-	cardIndex := -1
-	for i, card := range player.Hand {
-		if game.CardEquals(card, req.Card) {
-			cardIndex = i
-			break
+	var trickComplete bool
+	_, err := h.store.Update(r.Context(), req.GameID, func(g *game.Game) error {
+		if g.State != "playing" {
+			return httpErr(http.StatusBadRequest, "not in playing phase")
 		}
-	}
-
-	if cardIndex == -1 {
-		http.Error(w, "player does not have that card", http.StatusBadRequest)
-		return
-	}
-
-	playedCard := player.Hand[cardIndex]
-	player.Hand = append(player.Hand[:cardIndex], player.Hand[cardIndex+1:]...)
-
-	// Enforce follow-suit.
-	if len(round.CurrentTrick.Plays) > 0 {
-		leadCard := round.CurrentTrick.Plays[0].Card
-		leadSuit := strings.ToLower(leadCard.Suit)
-		hasLeadSuit := false
-		for _, c := range player.Hand {
-			if !c.IsJoker && strings.ToLower(c.Suit) == leadSuit {
-				hasLeadSuit = true
+		round := g.CurrentRound
+		expectedPlayerID := g.Players[(round.TrickLeader+round.TrickTurnIndex)%len(g.Players)].ID
+		if req.PlayerID != expectedPlayerID {
+			return httpErr(http.StatusBadRequest, "not your turn to play")
+		}
+		player, _ := game.FindPlayer(g, req.PlayerID)
+		cardIndex := -1
+		for i, c := range player.Hand {
+			if game.CardEquals(c, req.Card) {
+				cardIndex = i
 				break
 			}
 		}
-		if hasLeadSuit {
-			if req.Card.IsJoker || strings.ToLower(req.Card.Suit) != leadSuit {
-				http.Error(w, "you must follow suit", http.StatusBadRequest)
-				return
+		if cardIndex == -1 {
+			return httpErr(http.StatusBadRequest, "player does not have that card")
+		}
+		playedCard := player.Hand[cardIndex]
+		player.Hand = append(player.Hand[:cardIndex], player.Hand[cardIndex+1:]...)
+
+		if len(round.CurrentTrick.Plays) > 0 {
+			leadSuit := strings.ToLower(round.CurrentTrick.Plays[0].Card.Suit)
+			hasLeadSuit := false
+			for _, c := range player.Hand {
+				if !c.IsJoker && strings.ToLower(c.Suit) == leadSuit {
+					hasLeadSuit = true
+					break
+				}
+			}
+			if hasLeadSuit {
+				if req.Card.IsJoker || strings.ToLower(req.Card.Suit) != leadSuit {
+					return httpErr(http.StatusBadRequest, "you must follow suit")
+				}
 			}
 		}
-	}
 
-	play := game.Play{
-		PlayerID: req.PlayerID,
-		Card:     playedCard,
-	}
-	round.CurrentTrick.Plays = append(round.CurrentTrick.Plays, play)
-	round.TrickTurnIndex++
+		round.CurrentTrick.Plays = append(round.CurrentTrick.Plays, game.Play{
+			PlayerID: req.PlayerID,
+			Card:     playedCard,
+		})
+		round.TrickTurnIndex++
 
-	// Check if the trick is complete.
-	if len(round.CurrentTrick.Plays) == len(g.Players) {
-
-		//time.Sleep(500 * time.Millisecond)
-
-		leadSuit := strings.ToLower(round.CurrentTrick.Plays[0].Card.Suit)
-		winningPlay := round.CurrentTrick.Plays[0]
-		for _, p := range round.CurrentTrick.Plays[1:] {
-			if game.CompareCards(p.Card, winningPlay.Card, leadSuit) > 0 {
-				winningPlay = p
+		if len(round.CurrentTrick.Plays) == len(g.Players) {
+			leadSuit := strings.ToLower(round.CurrentTrick.Plays[0].Card.Suit)
+			winningPlay := round.CurrentTrick.Plays[0]
+			for _, p := range round.CurrentTrick.Plays[1:] {
+				if game.CompareCards(p.Card, winningPlay.Card, leadSuit) > 0 {
+					winningPlay = p
+				}
 			}
-		}
-		round.CurrentTrick.WinnerID = winningPlay.PlayerID
-
-		var winningMessage string = "Trick is over"
-		if winner, _ := game.FindPlayer(g, winningPlay.PlayerID); winner != nil {
-			winner.TricksWon++
-			winningMessage = fmt.Sprintf("%s won the trick!", winner.DisplayName)
-		}
-
-		// Persist the trick-over message in the game state.
-		g.TrickOverMessage = winningMessage
-
-		round.Tricks = append(round.Tricks, *round.CurrentTrick)
-
-		broadcastState(g)
-
-		// Immediately send the response with the trick-over message.
-		resp := map[string]interface{}{
-			"message":          "Card played",
-			"currentTrick":     round.CurrentTrick,
-			"tricks":           round.Tricks,
-			"winningCard":      winningPlay.Card,
-			"trickOverMessage": winningMessage,
-			"playerHand":       player.Hand,
-		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
-
-		// After 2 seconds, update the game state to transition to bidding.
-		go func() {
-			time.Sleep(2000 * time.Millisecond) // Wait 2 seconds for the UI to display the winning message
-
-			game.GamesMu.Lock()
-			defer func() {
-				game.GamesMu.Unlock()
-				broadcastState(g)
-			}()
-
-			// Clear the trick-over message as we transition.
-			g.TrickOverMessage = ""
-
-			// If players still have cards, prepare the next trick.
-			if len(g.Players[0].Hand) > 0 {
-				var winnerIndex int
-				for i, p := range g.Players {
-					if p.ID == winningPlay.PlayerID {
-						winnerIndex = i
-						break
-					}
-				}
-				round.TrickLeader = winnerIndex
-				round.CurrentTrick = &game.Trick{
-					LeaderID: winningPlay.PlayerID,
-					Plays:    []game.Play{},
-				}
-				round.TrickTurnIndex = 0
-				// The state remains "playing" until the trick is fully reset.
+			round.CurrentTrick.WinnerID = winningPlay.PlayerID
+			if winner, _ := game.FindPlayer(g, winningPlay.PlayerID); winner != nil {
+				winner.TricksWon++
+				g.TrickOverMessage = fmt.Sprintf("%s won the trick!", winner.DisplayName)
 			} else {
-				// End of round. Record round results.
-				var roundResults []game.PlayerRoundResult
-				for _, p := range g.Players {
-					bid := round.Bids[p.ID]
-					roundScore := 0
-					if p.TricksWon == bid {
-						roundScore = 10 + bid*bid
-						p.Score += roundScore
-					}
-					roundResults = append(roundResults, game.PlayerRoundResult{
-						PlayerID:   p.ID,
-						Bid:        bid,
-						TricksWon:  p.TricksWon,
-						RoundScore: roundScore,
-					})
-				}
-
-				newRoundResult := game.RoundResult{
-					RoundNumber: round.RoundNumber,
-					TotalCards:  round.TotalCards,
-					Results:     roundResults,
-				}
-				g.RoundResults = append(g.RoundResults, newRoundResult)
-
-				// Setup next round if available.
-				g.CurrentRoundIndex++
-				if g.CurrentRoundIndex < len(g.RoundSequence) {
-					newDealerIndex := (round.DealerIndex + 1) % len(g.Players)
-					for _, p := range g.Players {
-						p.TricksWon = 0
-						p.Hand = []game.Card{}
-					}
-
-					newRound := &game.Round{
-						RoundNumber:    g.CurrentRoundIndex + 1,
-						TotalCards:     g.RoundSequence[g.CurrentRoundIndex],
-						DealerIndex:    newDealerIndex,
-						Bids:           make(map[string]int),
-						BidOrder:       []string{},
-						CurrentBidTurn: 0,
-						Tricks:         []game.Trick{},
-					}
-
-					n := len(g.Players)
-					for i := 1; i < n; i++ {
-						index := (newDealerIndex + i) % n
-						newRound.BidOrder = append(newRound.BidOrder, g.Players[index].ID)
-					}
-					newRound.BidOrder = append(newRound.BidOrder, g.Players[newDealerIndex].ID)
-
-					deck := game.CreateDeck()
-					game.ShuffleDeck(deck)
-					if err := game.DealCards(deck, g.Players, newRound.TotalCards); err != nil {
-						return
-					}
-					g.CurrentRound = newRound
-					g.State = "bidding"
-				} else {
-					g.State = "finished"
-					time.Sleep(2000 * time.Millisecond)
-					for _, p := range g.Players {
-						missedRounds := 0
-						for _, roundResult := range g.RoundResults {
-							for _, res := range roundResult.Results {
-								if res.PlayerID == p.ID && res.TricksWon != res.Bid {
-									missedRounds++
-								}
-							}
-						}
-						p.MissedBids = missedRounds
-					}
-				}
+				g.TrickOverMessage = "Trick is over"
 			}
-		}()
+			round.Tricks = append(round.Tricks, *round.CurrentTrick)
+			trickComplete = true
+		}
+		return nil
+	})
+	if err != nil {
+		respondErr(w, err)
 		return
 	}
 
-	// Normal case: trick is not yet complete.
-	broadcastState(g)
-	resp := map[string]interface{}{
-		"message":      "Card played",
-		"currentTrick": round.CurrentTrick,
-		"tricks":       round.Tricks,
-		"playerHand":   player.Hand,
+	if !trickComplete {
+		writeJSON(w, http.StatusOK, map[string]string{"message": "Card played"})
+		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+
+	// Hold the HTTP request open for the trick-over display so Cloud Run
+	// keeps this instance alive long enough to finish the follow-up write.
+	time.Sleep(trickOverDisplayDuration)
+
+	_, err = h.store.Update(context.Background(), req.GameID, func(g *game.Game) error {
+		g.TrickOverMessage = ""
+		round := g.CurrentRound
+		if round == nil {
+			return nil
+		}
+		var winnerID string
+		if len(round.Tricks) > 0 {
+			winnerID = round.Tricks[len(round.Tricks)-1].WinnerID
+		}
+		if len(g.Players[0].Hand) > 0 {
+			winnerIndex := 0
+			for i, p := range g.Players {
+				if p.ID == winnerID {
+					winnerIndex = i
+					break
+				}
+			}
+			round.TrickLeader = winnerIndex
+			round.CurrentTrick = &game.Trick{
+				LeaderID: winnerID,
+				Plays:    []game.Play{},
+			}
+			round.TrickTurnIndex = 0
+			return nil
+		}
+		// End of round — record results.
+		var roundResults []game.PlayerRoundResult
+		for _, p := range g.Players {
+			bid := round.Bids[p.ID]
+			roundScore := 0
+			if p.TricksWon == bid {
+				roundScore = 10 + bid*bid
+				p.Score += roundScore
+			}
+			roundResults = append(roundResults, game.PlayerRoundResult{
+				PlayerID:   p.ID,
+				Bid:        bid,
+				TricksWon:  p.TricksWon,
+				RoundScore: roundScore,
+			})
+		}
+		g.RoundResults = append(g.RoundResults, game.RoundResult{
+			RoundNumber: round.RoundNumber,
+			TotalCards:  round.TotalCards,
+			Results:     roundResults,
+		})
+		g.CurrentRoundIndex++
+		if g.CurrentRoundIndex < len(g.RoundSequence) {
+			newDealerIndex := (round.DealerIndex + 1) % len(g.Players)
+			for _, p := range g.Players {
+				p.TricksWon = 0
+				p.Hand = []game.Card{}
+			}
+			newRound := &game.Round{
+				RoundNumber:    g.CurrentRoundIndex + 1,
+				TotalCards:     g.RoundSequence[g.CurrentRoundIndex],
+				DealerIndex:    newDealerIndex,
+				Bids:           make(map[string]int),
+				BidOrder:       []string{},
+				CurrentBidTurn: 0,
+				Tricks:         []game.Trick{},
+			}
+			n := len(g.Players)
+			for i := 1; i < n; i++ {
+				index := (newDealerIndex + i) % n
+				newRound.BidOrder = append(newRound.BidOrder, g.Players[index].ID)
+			}
+			newRound.BidOrder = append(newRound.BidOrder, g.Players[newDealerIndex].ID)
+			deck := game.CreateDeck()
+			game.ShuffleDeck(deck)
+			if err := game.DealCards(deck, g.Players, newRound.TotalCards); err != nil {
+				return err
+			}
+			g.CurrentRound = newRound
+			g.State = "bidding"
+			return nil
+		}
+		// Game over.
+		g.State = "finished"
+		for _, p := range g.Players {
+			missed := 0
+			for _, rr := range g.RoundResults {
+				for _, res := range rr.Results {
+					if res.PlayerID == p.ID && res.TricksWon != res.Bid {
+						missed++
+					}
+				}
+			}
+			p.MissedBids = missed
+		}
+		return nil
+	})
+	if err != nil {
+		log.Printf("post-trick update failed: %v", err)
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"message": "Card played"})
 }
 
-// GetGameStateHandler returns the current game state.
-func GetGameStateHandler(w http.ResponseWriter, r *http.Request) {
+// GetGameStateHandler returns the current game state for one-shot reads.
+// Frontend uses Firestore onSnapshot for live updates; this remains for the
+// initial fetch / URL restore path.
+func (h *Handlers) GetGameStateHandler(w http.ResponseWriter, r *http.Request) {
 	gameID := r.URL.Query().Get("gameId")
 	if gameID == "" {
 		http.Error(w, "gameId required", http.StatusBadRequest)
 		return
 	}
-	game.GamesMu.Lock()
-	g, ok := game.Games[gameID]
-	game.GamesMu.Unlock()
-	if !ok {
-		http.Error(w, "game not found", http.StatusNotFound)
+	g, err := h.store.Get(r.Context(), gameID)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			notFound(w, "game not found")
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(g)
+	writeJSON(w, http.StatusOK, g)
 }
 
-// ResetGameHandler resets the game state so that it looks like a freshly started game.
-// It clears the scoreboard and player scores, reinitializes the round sequence,
-// and deals a new round (e.g. 1 card per player if that's how the sequence starts),
-// leaving all players on the current (playing) screen.
-func ResetGameHandler(w http.ResponseWriter, r *http.Request) {
+// ResetGameHandler restarts the same lobby with fresh scores.
+func (h *Handlers) ResetGameHandler(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		GameID string `json:"gameId"`
 	}
@@ -563,137 +506,85 @@ func ResetGameHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	game.GamesMu.Lock()
-	defer game.GamesMu.Unlock()
+	g, err := h.store.Update(r.Context(), req.GameID, func(g *game.Game) error {
+		g.RoundResults = []game.RoundResult{}
+		g.CurrentRoundIndex = 0
+		for _, p := range g.Players {
+			p.Hand = []game.Card{}
+			p.Score = 0
+			p.TricksWon = 0
+			p.CurrentBid = 0
+			p.MissedBids = 0
+		}
+		maxPossible := int(math.Floor(54.0 / float64(len(g.Players))))
+		desired := g.CreatorMaxCards
+		if desired <= 0 || desired > maxPossible {
+			desired = maxPossible
+		}
+		g.RoundSequence = game.ComputeRoundSequence(desired)
+		g.State = "bidding"
 
-	g, ok := game.Games[req.GameID]
-	if !ok {
-		http.Error(w, "game not found", http.StatusNotFound)
+		var dealerIndex int
+		if g.CurrentRound != nil {
+			dealerIndex = (g.CurrentRound.DealerIndex + 1) % len(g.Players)
+		} else {
+			dealerIndex = rand.Intn(len(g.Players))
+		}
+		newRound := &game.Round{
+			RoundNumber:    1,
+			TotalCards:     g.RoundSequence[0],
+			DealerIndex:    dealerIndex,
+			Bids:           make(map[string]int),
+			BidOrder:       []string{},
+			CurrentBidTurn: 0,
+		}
+		n := len(g.Players)
+		for i := 1; i < n; i++ {
+			index := (dealerIndex + i) % n
+			newRound.BidOrder = append(newRound.BidOrder, g.Players[index].ID)
+		}
+		newRound.BidOrder = append(newRound.BidOrder, g.Players[dealerIndex].ID)
+		g.CurrentRound = newRound
+
+		deck := game.CreateDeck()
+		game.ShuffleDeck(deck)
+		for _, p := range g.Players {
+			p.Hand = []game.Card{}
+		}
+		if err := game.DealCards(deck, g.Players, newRound.TotalCards); err != nil {
+			return httpErr(http.StatusInternalServerError, "error dealing cards: "+err.Error())
+		}
+		return nil
+	})
+	if err != nil {
+		respondErr(w, err)
 		return
 	}
-
-	// Clear the scoreboard and reset player state.
-	g.RoundResults = []game.RoundResult{}
-	g.CurrentRoundIndex = 0
-	for _, p := range g.Players {
-		p.Hand = []game.Card{}
-		p.Score = 0
-		p.TricksWon = 0
-		p.CurrentBid = 0
-		p.MissedBids = 0
-	}
-
-	// Recompute the round sequence based on the creator's max cards.
-	// (Assumes you use the same logic as in StartGameHandler.)
-	maxPossible := int(math.Floor(54.0 / float64(len(g.Players))))
-	desired := g.CreatorMaxCards
-	if desired <= 0 || desired > maxPossible {
-		desired = maxPossible
-	}
-	g.RoundSequence = game.ComputeRoundSequence(desired)
-
-	// Set the game state to "bidding" for a new round.
-	g.State = "bidding"
-
-	// Choose a new dealer.
-	// You can either rotate the dealer or choose one at random.
-	// Here we'll rotate from the previous round if one exists, or choose randomly.
-	var dealerIndex int
-	if g.CurrentRound != nil {
-		dealerIndex = (g.CurrentRound.DealerIndex + 1) % len(g.Players)
-	} else {
-		dealerIndex = rand.Intn(len(g.Players))
-	}
-
-	// Create a new round using the first value in the round sequence.
-	newRound := &game.Round{
-		RoundNumber:    1, // starting over with round number 1
-		TotalCards:     g.RoundSequence[0],
-		DealerIndex:    dealerIndex,
-		Bids:           make(map[string]int),
-		BidOrder:       []string{},
-		CurrentBidTurn: 0,
-	}
-	// Set bidding order: start with the player to the left of the dealer, then dealer last.
-	n := len(g.Players)
-	for i := 1; i < n; i++ {
-		index := (dealerIndex + i) % n
-		newRound.BidOrder = append(newRound.BidOrder, g.Players[index].ID)
-	}
-	newRound.BidOrder = append(newRound.BidOrder, g.Players[dealerIndex].ID)
-	g.CurrentRound = newRound
-
-	// Create a new deck, shuffle it, and deal cards.
-	deck := game.CreateDeck()
-	game.ShuffleDeck(deck)
-	for _, p := range g.Players {
-		p.Hand = []game.Card{}
-	}
-	if err := game.DealCards(deck, g.Players, newRound.TotalCards); err != nil {
-		http.Error(w, "error dealing cards: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	broadcastState(g)
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(g)
+	writeJSON(w, http.StatusOK, g)
 }
 
-// EventsHandler streams game-state updates to a client over Server-Sent Events.
-// One connection per client; broadcasts originate from mutation handlers via
-// broadcastState. A keepalive comment is sent every 20s to defeat idle-proxy
-// disconnects.
-func EventsHandler(w http.ResponseWriter, r *http.Request) {
-	gameID := r.URL.Query().Get("gameId")
-	if gameID == "" {
-		http.Error(w, "gameId required", http.StatusBadRequest)
+// httpError carries an HTTP status alongside the error message. Mutate
+// callbacks return one of these to fail the transaction with a clean status.
+type httpError struct {
+	Status  int
+	Message string
+}
+
+func (e *httpError) Error() string { return e.Message }
+
+func httpErr(status int, msg string) error {
+	return &httpError{Status: status, Message: msg}
+}
+
+func respondErr(w http.ResponseWriter, err error) {
+	var he *httpError
+	if errors.As(err, &he) {
+		http.Error(w, he.Message, he.Status)
 		return
 	}
-
-	game.GamesMu.Lock()
-	g, ok := game.Games[gameID]
-	game.GamesMu.Unlock()
-	if !ok {
-		http.Error(w, "game not found", http.StatusNotFound)
+	if errors.Is(err, store.ErrNotFound) {
+		notFound(w, "game not found")
 		return
 	}
-
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("X-Accel-Buffering", "no")
-
-	ch := g.Subscribe()
-	defer g.Unsubscribe(ch)
-
-	if payload, err := json.Marshal(g); err == nil {
-		fmt.Fprintf(w, "data: %s\n\n", payload)
-		flusher.Flush()
-	}
-
-	ctx := r.Context()
-	keepalive := time.NewTicker(20 * time.Second)
-	defer keepalive.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case payload, ok := <-ch:
-			if !ok {
-				return
-			}
-			fmt.Fprintf(w, "data: %s\n\n", payload)
-			flusher.Flush()
-		case <-keepalive.C:
-			fmt.Fprintf(w, ": ping\n\n")
-			flusher.Flush()
-		}
-	}
+	http.Error(w, err.Error(), http.StatusInternalServerError)
 }

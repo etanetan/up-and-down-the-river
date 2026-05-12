@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { doc, onSnapshot } from 'firebase/firestore';
 import BidModal from './BidModal'; // Import the vertical bidding modal component
+import { db } from './firebase';
 import './App.css';
 
 // Backend API URL. In production (Vercel) we hit Cloud Run; for local dev
@@ -679,66 +681,26 @@ function App() {
 		copyToClipboard(url);
 	};
 
-	// Stream game-state updates from the backend via Server-Sent Events.
-	// The backend pushes a snapshot on every mutation and on connect, so the
-	// frontend never polls. On disconnect we reconnect with exponential
-	// backoff capped at 15s; resets to immediate on a successful open.
+	// Listen to the game doc in Firestore. The backend writes the doc on every
+	// mutation; the Firestore client SDK handles real-time push, reconnects,
+	// and offline buffering. If the doc is deleted (or never existed), the
+	// snapshot reports !exists() and we send the user home.
 	useEffect(() => {
 		if (!gameId) return;
-		let es = null;
-		let retryTimer = null;
-		let retries = 0;
-		let stopped = false;
-
-		const connect = () => {
-			if (stopped) return;
-			try {
-				es = new EventSource(`${API_URL}/games/events?gameId=${gameId}`);
-			} catch (err) {
-				return;
+		const unsub = onSnapshot(
+			doc(db, 'games', gameId),
+			(snap) => {
+				if (!snap.exists()) {
+					handleSessionLost();
+					return;
+				}
+				applyGameState(snap.data());
+			},
+			(err) => {
+				console.error('Firestore listener error:', err);
 			}
-			es.onopen = () => {
-				retries = 0;
-			};
-			es.onmessage = (e) => {
-				try {
-					const data = JSON.parse(e.data);
-					applyGameState(data);
-				} catch (err) {
-					/* ignore parse errors */
-				}
-			};
-			es.onerror = async () => {
-				if (es) {
-					es.close();
-					es = null;
-				}
-				if (stopped) return;
-				retries += 1;
-				// EventSource doesn't surface HTTP status; probe /state to see
-				// whether the game still exists. 404 = game gone (cold start,
-				// redeploy, etc.) — stop retrying and send the user home.
-				if (retries >= 2) {
-					const result = await fetchGameState(gameId);
-					if (stopped) return;
-					if (result === 'gone') {
-						stopped = true;
-						handleSessionLost();
-						return;
-					}
-				}
-				if (stopped) return;
-				const delay = Math.min(1000 * 2 ** Math.min(retries, 5), 15000);
-				retryTimer = setTimeout(connect, delay);
-			};
-		};
-
-		connect();
-		return () => {
-			stopped = true;
-			if (es) es.close();
-			if (retryTimer) clearTimeout(retryTimer);
-		};
+		);
+		return unsub;
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [gameId]);
 

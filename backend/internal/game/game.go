@@ -4,7 +4,6 @@ import (
 	"errors"
 	"math/rand"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -41,126 +40,85 @@ const (
 )
 
 // Card represents a playing card.
+// The struct tags below apply to both encoding/json (HTTP responses) and
+// Firestore. Field names match across both so the browser's Firestore
+// listener sees the same schema the REST API used to return.
 type Card struct {
-	Suit      string `json:"suit"`      // e.g. "hearts", "spades", etc.
-	Rank      int    `json:"rank"`      // 2–14 (Ace is high)
-	IsJoker   bool   `json:"isJoker"`   // true if joker
-	JokerName string `json:"jokerName"` // "J1" or "J2"
+	Suit      string `json:"suit" firestore:"suit"`
+	Rank      int    `json:"rank" firestore:"rank"`
+	IsJoker   bool   `json:"isJoker" firestore:"isJoker"`
+	JokerName string `json:"jokerName" firestore:"jokerName"`
 }
 
 // Player represents a game participant.
 type Player struct {
-	ID          string `json:"id"`
-	DisplayName string `json:"displayName"`
-	Hand        []Card `json:"hand"`
-	CurrentBid  int    `json:"currentBid"`
-	BidOrder    int    `json:"bidOrder"`
-	TricksWon   int    `json:"tricksWon"`
-	Score       int    `json:"score"`
-	IsBot       bool   `json:"isBot"`
-	MissedBids  int    `json:"missedBids"`
+	ID          string `json:"id" firestore:"id"`
+	DisplayName string `json:"displayName" firestore:"displayName"`
+	Hand        []Card `json:"hand" firestore:"hand"`
+	CurrentBid  int    `json:"currentBid" firestore:"currentBid"`
+	BidOrder    int    `json:"bidOrder" firestore:"bidOrder"`
+	TricksWon   int    `json:"tricksWon" firestore:"tricksWon"`
+	Score       int    `json:"score" firestore:"score"`
+	IsBot       bool   `json:"isBot" firestore:"isBot"`
+	MissedBids  int    `json:"missedBids" firestore:"missedBids"`
 }
 
 // Play represents one card played in a trick.
 type Play struct {
-	PlayerID string `json:"playerId"`
-	Card     Card   `json:"card"`
+	PlayerID string `json:"playerId" firestore:"playerId"`
+	Card     Card   `json:"card" firestore:"card"`
 }
 
 // Trick represents a single trick.
 type Trick struct {
-	Plays    []Play `json:"plays"`
-	LeaderID string `json:"leaderId"`
-	WinnerID string `json:"winnerId"`
+	Plays    []Play `json:"plays" firestore:"plays"`
+	LeaderID string `json:"leaderId" firestore:"leaderId"`
+	WinnerID string `json:"winnerId" firestore:"winnerId"`
 }
 
 // Round represents one round of play.
 type Round struct {
-	RoundNumber    int            `json:"roundNumber"`
-	TotalCards     int            `json:"totalCards"`
-	DealerIndex    int            `json:"dealerIndex"`
-	Bids           map[string]int `json:"bids"`
-	BidOrder       []string       `json:"bidOrder"`
-	CurrentBidTurn int            `json:"currentBidTurn"`
-	Tricks         []Trick        `json:"tricks"`
-	CurrentTrick   *Trick         `json:"currentTrick"`
-	TrickTurnIndex int            `json:"trickTurnIndex"`
-	TrickLeader    int            `json:"trickLeader"`
+	RoundNumber    int            `json:"roundNumber" firestore:"roundNumber"`
+	TotalCards     int            `json:"totalCards" firestore:"totalCards"`
+	DealerIndex    int            `json:"dealerIndex" firestore:"dealerIndex"`
+	Bids           map[string]int `json:"bids" firestore:"bids"`
+	BidOrder       []string       `json:"bidOrder" firestore:"bidOrder"`
+	CurrentBidTurn int            `json:"currentBidTurn" firestore:"currentBidTurn"`
+	Tricks         []Trick        `json:"tricks" firestore:"tricks"`
+	CurrentTrick   *Trick         `json:"currentTrick" firestore:"currentTrick"`
+	TrickTurnIndex int            `json:"trickTurnIndex" firestore:"trickTurnIndex"`
+	TrickLeader    int            `json:"trickLeader" firestore:"trickLeader"`
 }
 
 // RoundResult holds results for a round.
 type RoundResult struct {
-	RoundNumber int                  `json:"roundNumber"`
-	TotalCards  int                  `json:"totalCards"`
-	Results     []PlayerRoundResult  `json:"results"`
+	RoundNumber int                 `json:"roundNumber" firestore:"roundNumber"`
+	TotalCards  int                 `json:"totalCards" firestore:"totalCards"`
+	Results     []PlayerRoundResult `json:"results" firestore:"results"`
 }
 
 // PlayerRoundResult holds a player’s result for a round.
 type PlayerRoundResult struct {
-	PlayerID   string `json:"playerId"`
-	Bid        int    `json:"bid"`
-	TricksWon  int    `json:"tricksWon"`
-	RoundScore int    `json:"roundScore"`
+	PlayerID   string `json:"playerId" firestore:"playerId"`
+	Bid        int    `json:"bid" firestore:"bid"`
+	TricksWon  int    `json:"tricksWon" firestore:"tricksWon"`
+	RoundScore int    `json:"roundScore" firestore:"roundScore"`
 }
 
-// Game represents the overall game state.
+// Game represents the overall game state. This is the Firestore document
+// schema (collection: games, docID: Game.ID).
 type Game struct {
-	ID                string            `json:"id"`
-	Players           []*Player         `json:"players"`
-	State             string            `json:"state"` // "lobby", "bidding", "playing", "scoring", "finished"
-	CurrentRound      *Round            `json:"currentRound"`
-	RoundSequence     []int             `json:"roundSequence"`
-	CurrentRoundIndex int               `json:"currentRoundIndex"`
-	CreatorMaxCards   int               `json:"creatorMaxCards"`
-	MoneyPerMiss      float64           `json:"moneyPerMiss"`
-	RoundResults      []RoundResult     `json:"roundResults"`
-	TrickOverMessage  string            `json:"trickOverMessage,omitempty"`
-
-	// Subscribers receive a marshalled snapshot of the game whenever it
-	// mutates. Not serialized in the JSON game state.
-	Subscribers   map[chan []byte]struct{} `json:"-"`
-	SubscribersMu sync.Mutex               `json:"-"`
+	ID                string        `json:"id" firestore:"id"`
+	Players           []*Player     `json:"players" firestore:"players"`
+	State             string        `json:"state" firestore:"state"` // "lobby" | "bidding" | "playing" | "scoring" | "finished"
+	CurrentRound      *Round        `json:"currentRound" firestore:"currentRound"`
+	RoundSequence     []int         `json:"roundSequence" firestore:"roundSequence"`
+	CurrentRoundIndex int           `json:"currentRoundIndex" firestore:"currentRoundIndex"`
+	CreatorMaxCards   int           `json:"creatorMaxCards" firestore:"creatorMaxCards"`
+	MoneyPerMiss      float64       `json:"moneyPerMiss" firestore:"moneyPerMiss"`
+	RoundResults      []RoundResult `json:"roundResults" firestore:"roundResults"`
+	TrickOverMessage  string        `json:"trickOverMessage,omitempty" firestore:"trickOverMessage,omitempty"`
 }
-
-// Subscribe registers a new SSE subscriber channel and returns it.
-func (g *Game) Subscribe() chan []byte {
-	g.SubscribersMu.Lock()
-	defer g.SubscribersMu.Unlock()
-	if g.Subscribers == nil {
-		g.Subscribers = make(map[chan []byte]struct{})
-	}
-	ch := make(chan []byte, 8)
-	g.Subscribers[ch] = struct{}{}
-	return ch
-}
-
-// Unsubscribe removes a subscriber channel.
-func (g *Game) Unsubscribe(ch chan []byte) {
-	g.SubscribersMu.Lock()
-	defer g.SubscribersMu.Unlock()
-	if _, ok := g.Subscribers[ch]; ok {
-		delete(g.Subscribers, ch)
-		close(ch)
-	}
-}
-
-// Publish fans out a payload to all subscribers, dropping on slow consumers.
-func (g *Game) Publish(payload []byte) {
-	g.SubscribersMu.Lock()
-	defer g.SubscribersMu.Unlock()
-	for ch := range g.Subscribers {
-		select {
-		case ch <- payload:
-		default:
-		}
-	}
-}
-
-// Global games map and its mutex.
-var (
-	Games   = make(map[string]*Game)
-	GamesMu sync.Mutex
-)
 
 // CreateDeck returns a standard deck (52 cards plus 2 jokers).
 func CreateDeck() []Card {
