@@ -655,70 +655,26 @@ function App() {
 		copyToClipboard(url);
 	};
 
-	// Stream game-state updates from the backend via Server-Sent Events. The
-	// backend pushes a new snapshot on every mutation, so this replaces the
-	// previous polling loop. If the backend doesn't support SSE (or it fails),
-	// we give up after a few retries and fall back to slow REST polling. On
-	// HTTP 404 (game no longer exists on the server) we stop everything.
+	// Stream game-state updates from the backend via Server-Sent Events.
+	// The backend pushes a snapshot on every mutation and on connect, so the
+	// frontend never polls. On disconnect we reconnect with exponential
+	// backoff capped at 15s; resets to immediate on a successful open.
 	useEffect(() => {
 		if (!gameId) return;
 		let es = null;
-		let pollTimer = null;
 		let retryTimer = null;
 		let retries = 0;
 		let stopped = false;
-		let sseGaveUp = false;
-		const POLL_INTERVAL_MS = 4000;
-		const MAX_SSE_RETRIES = 3;
 
-		const tearDown = () => {
-			stopped = true;
-			if (es) {
-				es.close();
-				es = null;
-			}
-			if (retryTimer) {
-				clearTimeout(retryTimer);
-				retryTimer = null;
-			}
-			if (pollTimer) {
-				clearInterval(pollTimer);
-				pollTimer = null;
-			}
-		};
-
-		const pollOnce = async () => {
-			const result = await fetchGameState(gameId);
-			if (result === 'gone') {
-				tearDown();
-			}
-		};
-
-		const startPolling = () => {
-			if (pollTimer || stopped) return;
-			pollOnce(); // immediate fetch
-			pollTimer = setInterval(() => {
-				if (!stopped) pollOnce();
-			}, POLL_INTERVAL_MS);
-		};
-		const stopPolling = () => {
-			if (pollTimer) {
-				clearInterval(pollTimer);
-				pollTimer = null;
-			}
-		};
 		const connect = () => {
-			if (stopped || sseGaveUp) return;
+			if (stopped) return;
 			try {
 				es = new EventSource(`${API_URL}/games/events?gameId=${gameId}`);
 			} catch (err) {
-				sseGaveUp = true;
-				startPolling();
 				return;
 			}
 			es.onopen = () => {
 				retries = 0;
-				stopPolling();
 			};
 			es.onmessage = (e) => {
 				try {
@@ -735,13 +691,6 @@ function App() {
 				}
 				if (stopped) return;
 				retries += 1;
-				if (retries >= MAX_SSE_RETRIES) {
-					// Backend doesn't support SSE (or it's down). Stop retrying
-					// to avoid hammering /events; rely on polling instead.
-					sseGaveUp = true;
-					startPolling();
-					return;
-				}
 				const delay = Math.min(1000 * 2 ** Math.min(retries, 5), 15000);
 				retryTimer = setTimeout(connect, delay);
 			};
@@ -749,7 +698,9 @@ function App() {
 
 		connect();
 		return () => {
-			tearDown();
+			stopped = true;
+			if (es) es.close();
+			if (retryTimer) clearTimeout(retryTimer);
 		};
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [gameId]);
