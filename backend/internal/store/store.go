@@ -55,7 +55,43 @@ func (s *Store) Get(ctx context.Context, gameID string) (*game.Game, error) {
 	if err := snap.DataTo(&g); err != nil {
 		return nil, fmt.Errorf("firestore decode: %w", err)
 	}
+	normalizeGame(&g)
 	return &g, nil
+}
+
+// normalizeGame ensures slice fields are non-nil so the JSON encoder
+// emits [] instead of null — which keeps the wire shape consistent with
+// what the frontend's Firestore listener already sees.
+func normalizeGame(g *game.Game) {
+	if g == nil {
+		return
+	}
+	if g.RoundSequence == nil {
+		g.RoundSequence = []int{}
+	}
+	if g.RoundResults == nil {
+		g.RoundResults = []game.RoundResult{}
+	}
+	for _, p := range g.Players {
+		if p.Hand == nil {
+			p.Hand = []game.Card{}
+		}
+	}
+	if g.CurrentRound != nil {
+		r := g.CurrentRound
+		if r.Bids == nil {
+			r.Bids = map[string]int{}
+		}
+		if r.BidOrder == nil {
+			r.BidOrder = []string{}
+		}
+		if r.Tricks == nil {
+			r.Tricks = []game.Trick{}
+		}
+		if r.CurrentTrick != nil && r.CurrentTrick.Plays == nil {
+			r.CurrentTrick.Plays = []game.Play{}
+		}
+	}
 }
 
 // Update transactionally loads a game, calls mutate, and writes the result.

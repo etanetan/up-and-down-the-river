@@ -10,6 +10,32 @@ const API_URL =
 	process.env.REACT_APP_API_URL ||
 	'https://upanddownbackend-755936114859.us-central1.run.app';
 
+// Firestore stores nil Go slices as null (or omits them), so the JS payload
+// may have `plays: null` etc. Defensive normalization here means every render
+// path can treat array fields as arrays. Don't add new ones unless the
+// backend struct grew a new slice field.
+const normalizeGameState = (data) => {
+	if (!data) return data;
+	const g = { ...data };
+	g.players = (g.players || []).map((p) => ({ ...p, hand: p.hand || [] }));
+	g.roundSequence = g.roundSequence || [];
+	g.roundResults = (g.roundResults || []).map((r) => ({
+		...r,
+		results: r.results || [],
+	}));
+	if (g.currentRound) {
+		const r = { ...g.currentRound };
+		r.bids = r.bids || {};
+		r.bidOrder = r.bidOrder || [];
+		r.tricks = r.tricks || [];
+		if (r.currentTrick) {
+			r.currentTrick = { ...r.currentTrick, plays: r.currentTrick.plays || [] };
+		}
+		g.currentRound = r;
+	}
+	return g;
+};
+
 // Pure helper used by both the final-game scoreboard and the in-game tracker.
 const moneyLostForPlayer = (gameState, playerId) => {
 	if (!gameState || !gameState.moneyPerMiss) return 0;
@@ -511,8 +537,9 @@ function App() {
 	// Apply a freshly received game state to local state. Shared between the
 	// SSE stream, REST polling fallback, and the initial fetch on URL restore.
 	const applyGameState = useCallback(
-		(data) => {
-			if (!data) return;
+		(raw) => {
+			if (!raw) return;
+			const data = normalizeGameState(raw);
 			setGameState(data);
 			if (
 				data.state === 'bidding' ||
