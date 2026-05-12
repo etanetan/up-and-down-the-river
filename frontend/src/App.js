@@ -355,21 +355,29 @@ function App() {
 
 	// Create a new game by calling the backend.
 	const createGame = async () => {
-		const response = await fetch(`${API_URL}/games/create`, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ displayName, creatorMaxCards, moneyPerMiss }),
-		});
-		const data = await response.json();
-		setGameId(data.gameId);
-		setPlayerId(data.playerId);
-
-		// Save to localStorage
-		localStorage.setItem('gameId', data.gameId);
-		localStorage.setItem('playerId', data.playerId);
-		localStorage.setItem('displayName', displayName);
-
-		setView('lobby');
+		try {
+			const response = await fetch(`${API_URL}/games/create`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ displayName, creatorMaxCards, moneyPerMiss }),
+			});
+			if (!response.ok) {
+				flashToast('Could not create game');
+				return;
+			}
+			const data = await response.json();
+			setGameId(data.gameId);
+			setPlayerId(data.playerId);
+			localStorage.setItem('gameId', data.gameId);
+			localStorage.setItem('playerId', data.playerId);
+			localStorage.setItem('displayName', displayName);
+			setView('lobby');
+			// Pull the initial lobby snapshot immediately so the player list shows
+			// us straight away — don't wait for SSE/polling to settle.
+			fetchGameState(data.gameId);
+		} catch (err) {
+			flashToast('Network error');
+		}
 	};
 
 	// Join an existing game.
@@ -378,20 +386,27 @@ function App() {
 			console.error('Game ID or display name is missing.');
 			return;
 		}
-		const response = await fetch(`${API_URL}/games/join`, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ gameId, displayName }),
-		});
-		const data = await response.json();
-		setPlayerId(data.playerId);
-
-		// Save to localStorage
-		localStorage.setItem('gameId', gameId);
-		localStorage.setItem('playerId', data.playerId);
-		localStorage.setItem('displayName', displayName);
-
-		setView('lobby');
+		try {
+			const response = await fetch(`${API_URL}/games/join`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ gameId, displayName }),
+			});
+			if (!response.ok) {
+				const text = await response.text().catch(() => '');
+				flashToast(text || 'Could not join game');
+				return;
+			}
+			const data = await response.json();
+			setPlayerId(data.playerId);
+			localStorage.setItem('gameId', gameId);
+			localStorage.setItem('playerId', data.playerId);
+			localStorage.setItem('displayName', displayName);
+			setView('lobby');
+			fetchGameState(gameId);
+		} catch (err) {
+			flashToast('Network error');
+		}
 	};
 
 	// Start the game by transitioning to the bidding phase.
@@ -483,22 +498,26 @@ function App() {
 	);
 
 	// One-shot REST fetch (used on initial URL restore and as a polling fallback
-	// when SSE is unavailable).
+	// when SSE is unavailable). Returns the parsed state on success, null on
+	// failure, and the sentinel 'gone' when the backend says the game is gone
+	// so the caller can stop polling.
 	const fetchGameState = async (gameIdToFetch = gameId) => {
-		if (!gameIdToFetch) return;
+		if (!gameIdToFetch) return null;
 		try {
 			const response = await fetch(
 				`${API_URL}/games/state?gameId=${gameIdToFetch}`
 			);
+			if (response.status === 404) {
+				return 'gone';
+			}
 			if (!response.ok) {
-				const errorText = await response.text();
-				console.error('Error fetching game state:', errorText);
-				return;
+				return null;
 			}
 			const data = await response.json();
 			applyGameState(data);
+			return data;
 		} catch (err) {
-			console.error('Error fetching game state:', err);
+			return null;
 		}
 	};
 
@@ -634,9 +653,9 @@ function App() {
 
 	// Stream game-state updates from the backend via Server-Sent Events. The
 	// backend pushes a new snapshot on every mutation, so this replaces the
-	// previous 2-second polling loop. On error we retry with exponential
-	// backoff and fall back to REST polling so the game still works if the
-	// stream is blocked.
+	// previous polling loop. If the backend doesn't support SSE (or it fails),
+	// we give up after a few retries and fall back to slow REST polling. On
+	// HTTP 404 (game no longer exists on the server) we stop everything.
 	useEffect(() => {
 		if (!gameId) return;
 		let es = null;
@@ -644,12 +663,39 @@ function App() {
 		let retryTimer = null;
 		let retries = 0;
 		let stopped = false;
+		let sseGaveUp = false;
+		const POLL_INTERVAL_MS = 4000;
+		const MAX_SSE_RETRIES = 3;
+
+		const tearDown = () => {
+			stopped = true;
+			if (es) {
+				es.close();
+				es = null;
+			}
+			if (retryTimer) {
+				clearTimeout(retryTimer);
+				retryTimer = null;
+			}
+			if (pollTimer) {
+				clearInterval(pollTimer);
+				pollTimer = null;
+			}
+		};
+
+		const pollOnce = async () => {
+			const result = await fetchGameState(gameId);
+			if (result === 'gone') {
+				tearDown();
+			}
+		};
 
 		const startPolling = () => {
-			if (pollTimer) return;
+			if (pollTimer || stopped) return;
+			pollOnce(); // immediate fetch
 			pollTimer = setInterval(() => {
-				if (!stopped) fetchGameState(gameId);
-			}, 2000);
+				if (!stopped) pollOnce();
+			}, POLL_INTERVAL_MS);
 		};
 		const stopPolling = () => {
 			if (pollTimer) {
@@ -658,11 +704,11 @@ function App() {
 			}
 		};
 		const connect = () => {
-			if (stopped) return;
+			if (stopped || sseGaveUp) return;
 			try {
 				es = new EventSource(`${API_URL}/games/events?gameId=${gameId}`);
 			} catch (err) {
-				console.error('SSE construction failed:', err);
+				sseGaveUp = true;
 				startPolling();
 				return;
 			}
@@ -675,7 +721,7 @@ function App() {
 					const data = JSON.parse(e.data);
 					applyGameState(data);
 				} catch (err) {
-					console.error('SSE parse error:', err);
+					/* ignore parse errors */
 				}
 			};
 			es.onerror = () => {
@@ -685,8 +731,13 @@ function App() {
 				}
 				if (stopped) return;
 				retries += 1;
-				// After repeated failures, fall back to polling so play continues
-				if (retries >= 3) startPolling();
+				if (retries >= MAX_SSE_RETRIES) {
+					// Backend doesn't support SSE (or it's down). Stop retrying
+					// to avoid hammering /events; rely on polling instead.
+					sseGaveUp = true;
+					startPolling();
+					return;
+				}
 				const delay = Math.min(1000 * 2 ** Math.min(retries, 5), 15000);
 				retryTimer = setTimeout(connect, delay);
 			};
@@ -694,10 +745,7 @@ function App() {
 
 		connect();
 		return () => {
-			stopped = true;
-			if (es) es.close();
-			if (retryTimer) clearTimeout(retryTimer);
-			stopPolling();
+			tearDown();
 		};
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [gameId]);
@@ -1224,7 +1272,6 @@ function App() {
 							<input
 								id="displayName"
 								type="text"
-								placeholder="e.g. Alex"
 								value={displayName}
 								onChange={(e) => setDisplayName(e.target.value)}
 								autoComplete="off"
@@ -1323,7 +1370,6 @@ function App() {
 							<input
 								id="joinDisplayName"
 								type="text"
-								placeholder="e.g. Alex"
 								value={displayName}
 								onChange={(e) => setDisplayName(e.target.value)}
 								onKeyDown={(e) => {
