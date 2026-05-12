@@ -498,7 +498,9 @@ textarea {
 	justify-content: center;
 	align-items: center;
 	box-shadow: 0 -2px 5px rgba(0, 0, 0, 0.3);
-	overflow-x: auto;
+	/* Visible overflow so hover-lifted cards rise above the strip's top edge
+	   instead of being clipped. overflow-x:auto would also clip Y per spec. */
+	overflow: visible;
 }
 .main-content.full-width .hand-container {
 	left: 0;

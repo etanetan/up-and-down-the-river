@@ -435,6 +435,22 @@ function App() {
 		fetchGameState();
 	};
 
+	// Show "session lost" toast, clear local state, and send the player home.
+	// Used when the backend tells us the game no longer exists (Cloud Run
+	// instance restart / scale-to-zero / redeploy wiped in-memory state).
+	const handleSessionLost = () => {
+		flashToast('Game session ended — start a new game');
+		localStorage.removeItem('gameId');
+		localStorage.removeItem('playerId');
+		localStorage.removeItem('displayName');
+		setGameState(null);
+		setPendingPlay(null);
+		setGameId('');
+		setPlayerId('');
+		window.history.pushState({}, '', '/');
+		setView('home');
+	};
+
 	// Optimistically render the card on the table the instant the click /
 	// drop registers; the SSE push will confirm, and the effect below will
 	// clear pendingPlay once the server state catches up. If the server
@@ -450,7 +466,9 @@ function App() {
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ gameId, playerId, card }),
 			});
-			if (!resp.ok) {
+			if (resp.status === 404) {
+				handleSessionLost();
+			} else if (!resp.ok) {
 				setPendingPlay(null);
 				fetchGameState();
 			}
@@ -690,13 +708,26 @@ function App() {
 					/* ignore parse errors */
 				}
 			};
-			es.onerror = () => {
+			es.onerror = async () => {
 				if (es) {
 					es.close();
 					es = null;
 				}
 				if (stopped) return;
 				retries += 1;
+				// EventSource doesn't surface HTTP status; probe /state to see
+				// whether the game still exists. 404 = game gone (cold start,
+				// redeploy, etc.) — stop retrying and send the user home.
+				if (retries >= 2) {
+					const result = await fetchGameState(gameId);
+					if (stopped) return;
+					if (result === 'gone') {
+						stopped = true;
+						handleSessionLost();
+						return;
+					}
+				}
+				if (stopped) return;
 				const delay = Math.min(1000 * 2 ** Math.min(retries, 5), 15000);
 				retryTimer = setTimeout(connect, delay);
 			};
