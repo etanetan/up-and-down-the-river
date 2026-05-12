@@ -459,9 +459,12 @@ function App() {
 
 	const playSelectedCard = () => playCard(selectedCard);
 
-	// Clear pendingPlay once the server-confirmed state contains our card.
+	// Clear pendingPlay once the server has accepted our play. The unambiguous
+	// signal is that the card is no longer in our hand in the server-confirmed
+	// state — works whether we were leading the trick (plays array starts
+	// empty) or following.
 	useEffect(() => {
-		if (!pendingPlay || !gameState?.currentRound?.currentTrick) return;
+		if (!pendingPlay || !gameState) return;
 		const cardsEqual = (a, b) => {
 			if (a.isJoker !== b.isJoker) return false;
 			if (a.isJoker) return a.jokerName === b.jokerName;
@@ -469,14 +472,15 @@ function App() {
 				a.suit?.toLowerCase() === b.suit?.toLowerCase() && a.rank === b.rank
 			);
 		};
-		const seen = gameState.currentRound.currentTrick.plays?.some(
-			(p) => p.playerId === pendingPlay.playerId && cardsEqual(p.card, pendingPlay.card)
+		const me = gameState.players?.find((p) => p.id === playerId);
+		if (!me) return;
+		const stillInHand = (me.hand || []).some((c) =>
+			cardsEqual(c, pendingPlay.card)
 		);
-		// Also clear if the trick has been reset (next trick begun) — server moved on.
-		if (seen || gameState.currentRound.currentTrick.plays?.length === 0) {
+		if (!stillInHand) {
 			setPendingPlay(null);
 		}
-	}, [gameState, pendingPlay]);
+	}, [gameState, pendingPlay, playerId]);
 
 	// Apply a freshly received game state to local state. Shared between the
 	// SSE stream, REST polling fallback, and the initial fetch on URL restore.
