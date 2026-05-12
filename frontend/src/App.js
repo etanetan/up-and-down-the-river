@@ -371,9 +371,11 @@ function App() {
 			localStorage.setItem('gameId', data.gameId);
 			localStorage.setItem('playerId', data.playerId);
 			localStorage.setItem('displayName', displayName);
+			// Reflect the gameId in the URL so a reload restores the session.
+			window.history.pushState({}, '', '/' + data.gameId);
 			setView('lobby');
 			// Pull the initial lobby snapshot immediately so the player list shows
-			// us straight away — don't wait for SSE/polling to settle.
+			// us straight away — don't wait for SSE to settle.
 			fetchGameState(data.gameId);
 		} catch (err) {
 			flashToast('Network error');
@@ -402,6 +404,10 @@ function App() {
 			localStorage.setItem('gameId', gameId);
 			localStorage.setItem('playerId', data.playerId);
 			localStorage.setItem('displayName', displayName);
+			// Reflect the gameId in the URL so a reload restores the session.
+			if (window.location.pathname !== '/' + gameId) {
+				window.history.pushState({}, '', '/' + gameId);
+			}
 			setView('lobby');
 			fetchGameState(gameId);
 		} catch (err) {
@@ -1291,6 +1297,7 @@ function App() {
 										onKeyDown={(e) => {
 											if (e.key === 'Enter' && canJoinByCode) {
 												setGameId(codeNormalized);
+												window.history.pushState({}, '', '/' + codeNormalized);
 												setView('join');
 											}
 										}}
@@ -1300,6 +1307,7 @@ function App() {
 									className="primary-button"
 									onClick={() => {
 										setGameId(codeNormalized);
+										window.history.pushState({}, '', '/' + codeNormalized);
 										setView('join');
 									}}
 									disabled={!canJoinByCode}
