@@ -112,8 +112,48 @@ type Game struct {
 	RoundSequence     []int             `json:"roundSequence"`
 	CurrentRoundIndex int               `json:"currentRoundIndex"`
 	CreatorMaxCards   int               `json:"creatorMaxCards"`
+	MoneyPerMiss      float64           `json:"moneyPerMiss"`
 	RoundResults      []RoundResult     `json:"roundResults"`
 	TrickOverMessage  string            `json:"trickOverMessage,omitempty"`
+
+	// Subscribers receive a marshalled snapshot of the game whenever it
+	// mutates. Not serialized in the JSON game state.
+	Subscribers   map[chan []byte]struct{} `json:"-"`
+	SubscribersMu sync.Mutex               `json:"-"`
+}
+
+// Subscribe registers a new SSE subscriber channel and returns it.
+func (g *Game) Subscribe() chan []byte {
+	g.SubscribersMu.Lock()
+	defer g.SubscribersMu.Unlock()
+	if g.Subscribers == nil {
+		g.Subscribers = make(map[chan []byte]struct{})
+	}
+	ch := make(chan []byte, 8)
+	g.Subscribers[ch] = struct{}{}
+	return ch
+}
+
+// Unsubscribe removes a subscriber channel.
+func (g *Game) Unsubscribe(ch chan []byte) {
+	g.SubscribersMu.Lock()
+	defer g.SubscribersMu.Unlock()
+	if _, ok := g.Subscribers[ch]; ok {
+		delete(g.Subscribers, ch)
+		close(ch)
+	}
+}
+
+// Publish fans out a payload to all subscribers, dropping on slow consumers.
+func (g *Game) Publish(payload []byte) {
+	g.SubscribersMu.Lock()
+	defer g.SubscribersMu.Unlock()
+	for ch := range g.Subscribers {
+		select {
+		case ch <- payload:
+		default:
+		}
+	}
 }
 
 // Global games map and its mutex.

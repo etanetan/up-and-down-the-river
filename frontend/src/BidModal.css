@@ -6,13 +6,14 @@
 	display: flex;
 	flex-direction: row;
 	align-items: center;
-	gap: 6px;
-	padding: 8px 10px;
-	background: rgba(255, 255, 255, 0.95);
-	border-radius: 6px;
-	box-shadow: 0 3px 8px rgba(0, 0, 0, 0.2);
+	gap: 8px;
+	padding: 10px 12px;
+	background: rgba(255, 255, 255, 0.97);
+	border-radius: 10px;
+	box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
 	z-index: 200;
-	transition: all 0.3s ease;
+	transition: all 0.2s ease;
+	max-width: min(420px, calc(100vw - 24px));
 }
 
 .bid-modal.disabled {
@@ -130,5 +131,31 @@
 	50% {
 		transform: scale(1.05);
 		opacity: 0.9;
+	}
+}
+
+@media (max-width: 768px) {
+	.bid-modal {
+		bottom: 150px;
+		right: 12px;
+		left: 12px;
+		justify-content: center;
+		padding: 10px;
+		gap: 10px;
+	}
+	.arrow-button {
+		width: 40px;
+		height: 40px;
+		font-size: 1.1em;
+	}
+	.bid-input {
+		width: 60px;
+		font-size: 1.3em;
+		padding: 8px;
+	}
+	.place-bid-button {
+		min-height: 40px;
+		padding: 8px 14px;
+		font-size: 1em;
 	}
 }

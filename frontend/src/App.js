@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import BidModal from './BidModal'; // Import the vertical bidding modal component
 import './App.css';
 
@@ -6,6 +6,19 @@ import './App.css';
 // but here we're using the Cloud Run URL.
 //const API_URL = 'https://upanddownbackend-755936114859.us-central1.run.app';
 const API_URL = 'http://localhost:8080';
+
+// Pure helper used by both the final-game scoreboard and the in-game tracker.
+const moneyLostForPlayer = (gameState, playerId) => {
+	if (!gameState || !gameState.moneyPerMiss) return 0;
+	let total = 0;
+	(gameState.roundResults || []).forEach((round) => {
+		const result = round.results.find((r) => r.playerId === playerId);
+		if (result) {
+			total += Math.abs(result.tricksWon - result.bid) * gameState.moneyPerMiss;
+		}
+	});
+	return total;
+};
 // ---------------------------
 // Helper Functions
 // ---------------------------
@@ -263,9 +276,7 @@ function App() {
 	// creatorMaxCards: maximum number of cards (set by game creator)
 	// gameState: the current game state fetched from the backend
 	// selectedCard: currently selected card (if any)
-	// lastTrick: holds the most recent trick (used for animations or delayed updates)
 	// actionMessage: a message for the UI (e.g., whose turn it is or who won the trick)
-	// gameOver: flag for game completion
 	const [view, setView] = useState('home');
 	const [gameId, setGameId] = useState('');
 	const [playerId, setPlayerId] = useState('');
@@ -274,13 +285,33 @@ function App() {
 	const [moneyPerMiss, setMoneyPerMiss] = useState(0);
 	const [gameState, setGameState] = useState(null);
 	const [selectedCard, setSelectedCard] = useState(null);
-	const [lastTrick, setLastTrick] = useState(null);
 	const [actionMessage, setActionMessage] = useState('');
-	const [gameOver, setGameOver] = useState(false);
 	const [isDragging, setIsDragging] = useState(false);
 	const [draggedCard, setDraggedCard] = useState(null);
 	const [isCardPlayLocked, setIsCardPlayLocked] = useState(false);
 	const [scoreboardModalOpen, setScoreboardModalOpen] = useState(false);
+	const [pendingPlay, setPendingPlay] = useState(null);
+	const [canShare] = useState(
+		() => typeof navigator !== 'undefined' && typeof navigator.share === 'function'
+	);
+	const [shareToast, setShareToast] = useState('');
+	const shareToastTimer = useRef(null);
+	const [isMobile, setIsMobile] = useState(false);
+	const [homeTab, setHomeTab] = useState('create');
+	const [joinCodeInput, setJoinCodeInput] = useState('');
+
+	useEffect(() => {
+		if (typeof window === 'undefined' || !window.matchMedia) return;
+		const mq = window.matchMedia('(max-width: 768px)');
+		const handler = (e) => setIsMobile(e.matches);
+		setIsMobile(mq.matches);
+		if (mq.addEventListener) {
+			mq.addEventListener('change', handler);
+			return () => mq.removeEventListener('change', handler);
+		}
+		mq.addListener(handler);
+		return () => mq.removeListener(handler);
+	}, []);
 
 	// On component mount, check if there's a gameId in the URL.
 	// Only restore from localStorage if there's a matching gameId in the URL.
@@ -318,6 +349,7 @@ function App() {
 			setPlayerId('');
 			setView('home');
 		}
+		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 
 	// Create a new game by calling the backend.
@@ -381,62 +413,61 @@ function App() {
 		fetchGameState();
 	};
 
-	// Play a selected card.
-	const playSelectedCard = async () => {
-		if (!selectedCard || isCardPlayLocked) return;
-
-		// Lock card plays for 1 second
+	// Optimistically render the card on the table the instant the click /
+	// drop registers; the SSE push will confirm, and the effect below will
+	// clear pendingPlay once the server state catches up. If the server
+	// rejects the play, we revert by refetching state.
+	const playCard = async (card) => {
+		if (!card || isCardPlayLocked) return;
 		setIsCardPlayLocked(true);
-
-		await fetch(`${API_URL}/games/play`, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ gameId, playerId, card: selectedCard }),
-		});
+		setPendingPlay({ playerId, card });
 		setSelectedCard(null);
-
-		// Unlock after 1 second
+		try {
+			const resp = await fetch(`${API_URL}/games/play`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ gameId, playerId, card }),
+			});
+			if (!resp.ok) {
+				setPendingPlay(null);
+				fetchGameState();
+			}
+		} catch (err) {
+			setPendingPlay(null);
+			fetchGameState();
+		}
 		setTimeout(() => {
 			setIsCardPlayLocked(false);
 		}, 1000);
 	};
 
-	// Fetch the current game state from the backend.
-	const fetchGameState = async (gameIdToFetch = gameId) => {
-		if (!gameIdToFetch) return;
-		const response = await fetch(
-			`${API_URL}/games/state?gameId=${gameIdToFetch}`
+	const playSelectedCard = () => playCard(selectedCard);
+
+	// Clear pendingPlay once the server-confirmed state contains our card.
+	useEffect(() => {
+		if (!pendingPlay || !gameState?.currentRound?.currentTrick) return;
+		const cardsEqual = (a, b) => {
+			if (a.isJoker !== b.isJoker) return false;
+			if (a.isJoker) return a.jokerName === b.jokerName;
+			return (
+				a.suit?.toLowerCase() === b.suit?.toLowerCase() && a.rank === b.rank
+			);
+		};
+		const seen = gameState.currentRound.currentTrick.plays?.some(
+			(p) => p.playerId === pendingPlay.playerId && cardsEqual(p.card, pendingPlay.card)
 		);
-		if (!response.ok) {
-			const errorText = await response.text();
-			console.error('Error fetching game state:', errorText);
-			return;
+		// Also clear if the trick has been reset (next trick begun) — server moved on.
+		if (seen || gameState.currentRound.currentTrick.plays?.length === 0) {
+			setPendingPlay(null);
 		}
-		const data = await response.json();
-		// If the game state indicates that the game is finished, update gameOver flag.
-		if (data.state === 'finished') {
+	}, [gameState, pendingPlay]);
+
+	// Apply a freshly received game state to local state. Shared between the
+	// SSE stream, REST polling fallback, and the initial fetch on URL restore.
+	const applyGameState = useCallback(
+		(data) => {
+			if (!data) return;
 			setGameState(data);
-			setGameOver(true);
-		} else {
-			// If a trick is complete (all players played and a winner is set),
-			// temporarily hold the trick state before updating gameState.
-			if (
-				data.currentRound &&
-				data.currentRound.currentTrick &&
-				data.currentRound.currentTrick.plays.length === data.players.length &&
-				data.currentRound.currentTrick.winnerID
-			) {
-				if (!lastTrick) {
-					setLastTrick(data.currentRound.currentTrick);
-					setTimeout(() => {
-						setGameState(data);
-						setLastTrick(null);
-					}, 2000); // Delay to allow UI to display the trick-over message
-				}
-			} else {
-				setGameState(data);
-			}
-			// If the game state is one of these, set the view to 'game'.
 			if (
 				data.state === 'bidding' ||
 				data.state === 'playing' ||
@@ -444,9 +475,30 @@ function App() {
 			) {
 				setView('game');
 			}
+			updateTurnMessages(data);
+		},
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+		[playerId]
+	);
+
+	// One-shot REST fetch (used on initial URL restore and as a polling fallback
+	// when SSE is unavailable).
+	const fetchGameState = async (gameIdToFetch = gameId) => {
+		if (!gameIdToFetch) return;
+		try {
+			const response = await fetch(
+				`${API_URL}/games/state?gameId=${gameIdToFetch}`
+			);
+			if (!response.ok) {
+				const errorText = await response.text();
+				console.error('Error fetching game state:', errorText);
+				return;
+			}
+			const data = await response.json();
+			applyGameState(data);
+		} catch (err) {
+			console.error('Error fetching game state:', err);
 		}
-		// Update the action message (e.g., whose turn it is) based on the game state.
-		updateTurnMessages(data);
 	};
 
 	// updateTurnMessages: Updates the UI message that tells the user what is happening.
@@ -532,35 +584,121 @@ function App() {
 		window.history.pushState({}, '', '/');
 	};
 
-	// copyToClipboard: Copies text to clipboard
+	// Show a transient toast (used for share/copy confirmations).
+	const flashToast = (message) => {
+		setShareToast(message);
+		if (shareToastTimer.current) clearTimeout(shareToastTimer.current);
+		shareToastTimer.current = setTimeout(() => setShareToast(''), 1800);
+	};
+
+	// copyToClipboard: copies text and flashes a toast.
 	const copyToClipboard = async (text) => {
 		try {
 			await navigator.clipboard.writeText(text);
-			// You could add a toast notification here if desired
+			flashToast('Link copied');
 		} catch (err) {
-			console.error('Failed to copy text: ', err);
-			// Fallback for older browsers
 			const textArea = document.createElement('textarea');
 			textArea.value = text;
 			textArea.style.position = 'fixed';
 			textArea.style.left = '-999999px';
 			document.body.appendChild(textArea);
 			textArea.select();
+			let ok = false;
 			try {
-				document.execCommand('copy');
-			} catch (err) {
-				console.error('Fallback copy failed: ', err);
+				ok = document.execCommand('copy');
+			} catch (e) {
+				/* ignore */
 			}
 			document.body.removeChild(textArea);
+			flashToast(ok ? 'Link copied' : 'Copy failed');
 		}
 	};
 
-	// Poll the backend for the game state every 2 seconds.
+	// shareLink: opens the native share sheet when supported, otherwise copies.
+	const shareLink = async (url) => {
+		if (canShare) {
+			try {
+				await navigator.share({
+					title: 'Up and Down the River',
+					text: 'Join my game',
+					url,
+				});
+				return;
+			} catch (err) {
+				// user cancelled or share failed; fall through to copy
+			}
+		}
+		copyToClipboard(url);
+	};
+
+	// Stream game-state updates from the backend via Server-Sent Events. The
+	// backend pushes a new snapshot on every mutation, so this replaces the
+	// previous 2-second polling loop. On error we retry with exponential
+	// backoff and fall back to REST polling so the game still works if the
+	// stream is blocked.
 	useEffect(() => {
-		const interval = setInterval(() => {
-			if (gameId) fetchGameState();
-		}, 2000);
-		return () => clearInterval(interval);
+		if (!gameId) return;
+		let es = null;
+		let pollTimer = null;
+		let retryTimer = null;
+		let retries = 0;
+		let stopped = false;
+
+		const startPolling = () => {
+			if (pollTimer) return;
+			pollTimer = setInterval(() => {
+				if (!stopped) fetchGameState(gameId);
+			}, 2000);
+		};
+		const stopPolling = () => {
+			if (pollTimer) {
+				clearInterval(pollTimer);
+				pollTimer = null;
+			}
+		};
+		const connect = () => {
+			if (stopped) return;
+			try {
+				es = new EventSource(`${API_URL}/games/events?gameId=${gameId}`);
+			} catch (err) {
+				console.error('SSE construction failed:', err);
+				startPolling();
+				return;
+			}
+			es.onopen = () => {
+				retries = 0;
+				stopPolling();
+			};
+			es.onmessage = (e) => {
+				try {
+					const data = JSON.parse(e.data);
+					applyGameState(data);
+				} catch (err) {
+					console.error('SSE parse error:', err);
+				}
+			};
+			es.onerror = () => {
+				if (es) {
+					es.close();
+					es = null;
+				}
+				if (stopped) return;
+				retries += 1;
+				// After repeated failures, fall back to polling so play continues
+				if (retries >= 3) startPolling();
+				const delay = Math.min(1000 * 2 ** Math.min(retries, 5), 15000);
+				retryTimer = setTimeout(connect, delay);
+			};
+		};
+
+		connect();
+		return () => {
+			stopped = true;
+			if (es) es.close();
+			if (retryTimer) clearTimeout(retryTimer);
+			stopPolling();
+		};
+		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [gameId]);
 
 	// isMyTurnToBid: Checks if the local player is the current bidder.
@@ -744,8 +882,27 @@ function App() {
 	// Render the current trick cards on the table.
 	const renderCurrentTrick = (round) => {
 		if (!round || !round.currentTrick) return null;
-		// Use lastTrick if set (for animation/delay effect), otherwise use the current trick.
-		const trickToShow = lastTrick || round.currentTrick;
+		// Overlay the optimistic pending play if the server hasn't confirmed it yet.
+		let plays = round.currentTrick.plays || [];
+		if (pendingPlay) {
+			const alreadyIn = plays.some(
+				(p) =>
+					p.playerId === pendingPlay.playerId &&
+					p.card?.isJoker === pendingPlay.card.isJoker &&
+					(pendingPlay.card.isJoker
+						? p.card?.jokerName === pendingPlay.card.jokerName
+						: p.card?.rank === pendingPlay.card.rank &&
+						  p.card?.suit?.toLowerCase() ===
+								pendingPlay.card.suit?.toLowerCase())
+			);
+			if (!alreadyIn) {
+				plays = [
+					...plays,
+					{ playerId: pendingPlay.playerId, card: pendingPlay.card },
+				];
+			}
+		}
+		const trickToShow = { ...round.currentTrick, plays };
 
 		const numPlayers = gameState.players.length;
 		const currentIndex = gameState.players.findIndex((p) => p.id === playerId);
@@ -754,7 +911,6 @@ function App() {
 		return (
 			<div className="current-trick-cards">
 				{trickToShow.plays.map((play, index) => {
-					const player = gameState.players.find((p) => p.id === play.playerId);
 					const playerIndex = gameState.players.findIndex(
 						(p) => p.id === play.playerId
 					);
@@ -805,85 +961,131 @@ function App() {
 		// 'me' represents the local player.
 		const me = gameState.players.find((p) => p.id === playerId);
 		const round = gameState.currentRound;
-		// Sort the player's hand for display.
-		const sortedHand = me && me.hand ? sortHand(me.hand) : [];
+		// Hide the optimistically played card from the local hand until the
+		// server-confirmed state arrives.
+		const optimisticHand =
+			me && me.hand
+				? pendingPlay
+					? me.hand.filter(
+							(c) =>
+								!(
+									c.isJoker === pendingPlay.card.isJoker &&
+									(pendingPlay.card.isJoker
+										? c.jokerName === pendingPlay.card.jokerName
+										: c.rank === pendingPlay.card.rank &&
+										  c.suit?.toLowerCase() ===
+												pendingPlay.card.suit?.toLowerCase())
+								)
+					  )
+					: me.hand
+				: [];
+		const sortedHand = sortHand(optimisticHand);
 		return (
 			<div className="game-board">
 				{/* If the game is finished, display game over summary */}
-				{gameState.state === 'finished' && (
-					<div className="game-over-summary">
-						<h1>GAME OVER</h1>
-						<h2>Final Scores</h2>
-						<table className="final-score-table">
-							<thead>
-								<tr>
-									<th>Player</th>
-									<th>Score</th>
-									<th>Missed Bids</th>
-								</tr>
-							</thead>
-							<tbody>
-								{[...gameState.players]
-									.sort((a, b) => b.score - a.score)
-									.map((p) => (
-										<tr key={p.id}>
-											<td>{p.displayName}</td>
-											<td>{p.score}</td>
-											<td>{p.missedBids || 0}</td>
-										</tr>
-									))}
-							</tbody>
-						</table>
-						<button className="play-again-button" onClick={resetGame}>
-							Play Again
-						</button>
-					</div>
-				)}
+				{gameState.state === 'finished' && (() => {
+					const winnerScore = Math.max(
+						...gameState.players.map((p) => p.score)
+					);
+					const showMoney = (gameState.moneyPerMiss || 0) > 0;
+					return (
+						<div className="game-over-summary">
+							<h1>GAME OVER</h1>
+							<h2>Final Scores</h2>
+							<table className="final-score-table">
+								<thead>
+									<tr>
+										<th>Player</th>
+										<th>Score</th>
+										<th>Missed Bids</th>
+										{showMoney && <th>$ Lost</th>}
+									</tr>
+								</thead>
+								<tbody>
+									{[...gameState.players]
+										.sort((a, b) => b.score - a.score)
+										.map((p) => {
+											const isWinner = p.score === winnerScore;
+											return (
+												<tr key={p.id}>
+													<td>{p.displayName}</td>
+													<td>{p.score}</td>
+													<td>{p.missedBids || 0}</td>
+													{showMoney && (
+														<td style={{ color: isWinner ? '#fff' : '#ff6b6b' }}>
+															{isWinner
+																? ''
+																: `$${moneyLostForPlayer(gameState, p.id).toFixed(2)}`}
+														</td>
+													)}
+												</tr>
+											);
+										})}
+								</tbody>
+							</table>
+							<button className="play-again-button" onClick={resetGame}>
+								Play Again
+							</button>
+						</div>
+					);
+				})()}
 				<div className="top-section">
-					{/* Display the current action message (e.g., whose turn it is, or trick win message) */}
+					{/* Action message ("YOUR TURN to bid", "Alice won the trick!", etc.).
+					    Always mounted so the layout doesn't jump when the text appears/disappears. */}
 					<div className="action-message">
-						<p>{gameState.state === 'finished' ? '' : actionMessage}</p>
+						<span>
+							{gameState.state === 'finished'
+								? ''
+								: actionMessage || ' '}
+						</span>
 					</div>
-					{/* Display bid status during bidding and playing phases */}
-					{(gameState.state === 'bidding' || gameState.state === 'playing') &&
-						gameState.currentRound &&
-						(() => {
-							// Calculate sum of all bids (not count of players who bid)
-							let totalBids = 0;
-							for (const bid of Object.values(gameState.currentRound.bids)) {
+					{/* Bid-status strip with over/under/even tint. Same height during all
+					    phases — invisible placeholder outside bidding/playing so the layout
+					    is stable. */}
+					{(() => {
+						const inRound =
+							(gameState.state === 'bidding' ||
+								gameState.state === 'playing') &&
+							gameState.currentRound;
+						let totalBids = 0;
+						if (inRound) {
+							for (const bid of Object.values(
+								gameState.currentRound.bids
+							)) {
 								totalBids += bid;
 							}
-							const totalCards = gameState.currentRound.totalCards;
-							const difference = totalBids - totalCards;
-							let statusText;
-							let statusColor;
-
+						}
+						const totalCards = inRound
+							? gameState.currentRound.totalCards
+							: 0;
+						const difference = totalBids - totalCards;
+						let statusText = '';
+						let statusTint = '';
+						if (inRound) {
 							if (difference > 0) {
 								statusText = `${totalBids} bids, ${totalCards} available, ${difference} over`;
-								statusColor = '#ff4444';
+								statusTint = 'over';
 							} else if (difference < 0) {
 								statusText = `${totalBids} bids, ${totalCards} available, ${Math.abs(
 									difference
 								)} under`;
-								statusColor = '#4CAF50';
+								statusTint = 'under';
 							} else {
 								statusText = `${totalBids} bids, ${totalCards} available, even`;
-								statusColor = '#FFA500';
+								statusTint = 'even';
 							}
-
-							return (
-								<div
-									className="bid-status"
-									style={{
-										fontSize: '16px',
-										fontWeight: 'bold',
-										color: statusColor,
-									}}
-								>
-									{statusText}
-								</div>
-							);
-						})()}
+						}
+						return (
+							<div
+								className={`bid-status ${statusTint}${
+									!inRound ? ' bid-status-empty' : ''
+								}`}
+								aria-hidden={!inRound}
+							>
+								{statusText || ' '}
+							</div>
+						);
+					})()}
 				</div>
 				{/* Table container holds the central oval table with trick cards and players */}
 				<div className="table-container">
@@ -907,29 +1109,13 @@ function App() {
 									e.preventDefault();
 									e.dataTransfer.dropEffect = 'move';
 								}}
-								onDrop={async (e) => {
+								onDrop={(e) => {
 									e.preventDefault();
 									if (draggedCard && !isCardPlayLocked) {
-										// Lock card plays for 1 second
-										setIsCardPlayLocked(true);
-
-										await fetch(`${API_URL}/games/play`, {
-											method: 'POST',
-											headers: { 'Content-Type': 'application/json' },
-											body: JSON.stringify({
-												gameId,
-												playerId,
-												card: draggedCard,
-											}),
-										});
-										setSelectedCard(null);
+										const card = draggedCard;
 										setIsDragging(false);
 										setDraggedCard(null);
-
-										// Unlock after 1 second
-										setTimeout(() => {
-											setIsCardPlayLocked(false);
-										}, 1000);
+										playCard(card);
 									}
 								}}
 							>
@@ -1006,195 +1192,255 @@ function App() {
 
 	// Render different views based on the current state: home, join, lobby, or game.
 	if (view === 'home') {
+		const codeNormalized = joinCodeInput.trim().toUpperCase();
+		const canJoinByCode = displayName.trim() && codeNormalized.length >= 4;
 		return (
-			<div className="App">
-				<h1>Up and Down the River</h1>
-				<div className="game-setup-form">
-					<div className="form-field">
-						<label htmlFor="displayName">Your Name:</label>
-						<input
-							id="displayName"
-							type="text"
-							placeholder="Enter your name"
-							value={displayName}
-							onChange={(e) => setDisplayName(e.target.value)}
-						/>
-					</div>
-					<div className="form-field">
-						<label htmlFor="maxCards">Max Cards:</label>
-						<input
-							id="maxCards"
-							type="number"
-							placeholder="e.g., 10"
-							value={creatorMaxCards}
-							onChange={(e) => setCreatorMaxCards(parseInt(e.target.value, 10))}
-						/>
-					</div>
-					<div className="form-field">
-						<label htmlFor="moneyPerMiss">$ Per Missed Trick:</label>
-						<input
-							id="moneyPerMiss"
-							type="number"
-							placeholder="0.00"
-							value={moneyPerMiss}
-							onChange={(e) => setMoneyPerMiss(parseFloat(e.target.value) || 0)}
-							step="0.01"
-						/>
-						<small
-							style={{
-								color: '#ccc',
-								fontSize: '12px',
-								marginTop: '2px',
-								display: 'block',
-							}}
+			<div className="App home-view">
+				<div className="card-shell">
+					<h1 className="brand-title">Up and Down the River</h1>
+					<p className="brand-subtitle">Bid. Play. Win the trick.</p>
+					<div className="tab-toggle" role="tablist">
+						<button
+							role="tab"
+							aria-selected={homeTab === 'create'}
+							className={`tab-button ${homeTab === 'create' ? 'active' : ''}`}
+							onClick={() => setHomeTab('create')}
 						>
-							Set to 0 to play without stakes
-						</small>
+							Create
+						</button>
+						<button
+							role="tab"
+							aria-selected={homeTab === 'join'}
+							className={`tab-button ${homeTab === 'join' ? 'active' : ''}`}
+							onClick={() => setHomeTab('join')}
+						>
+							Join
+						</button>
 					</div>
-					<div className="button-group">
-						<button onClick={createGame}>Create Game</button>
-						<button onClick={joinGame}>Join Game</button>
+					<div className="form-stack">
+						<div className="form-field">
+							<label htmlFor="displayName">Your name</label>
+							<input
+								id="displayName"
+								type="text"
+								placeholder="e.g. Alex"
+								value={displayName}
+								onChange={(e) => setDisplayName(e.target.value)}
+								autoComplete="off"
+							/>
+						</div>
+						{homeTab === 'create' ? (
+							<>
+								<div className="form-field">
+									<label htmlFor="maxCards">Max cards per round</label>
+									<input
+										id="maxCards"
+										type="number"
+										inputMode="numeric"
+										placeholder="10"
+										value={creatorMaxCards}
+										onChange={(e) =>
+											setCreatorMaxCards(parseInt(e.target.value, 10) || 0)
+										}
+									/>
+								</div>
+								<div className="form-field">
+									<label htmlFor="moneyPerMiss">$ per missed trick</label>
+									<input
+										id="moneyPerMiss"
+										type="number"
+										inputMode="decimal"
+										placeholder="0.00"
+										value={moneyPerMiss}
+										onChange={(e) =>
+											setMoneyPerMiss(parseFloat(e.target.value) || 0)
+										}
+										step="0.01"
+									/>
+									<small className="field-hint">
+										Set to 0 to play without stakes
+									</small>
+								</div>
+								<button
+									className="primary-button"
+									onClick={createGame}
+									disabled={!displayName.trim()}
+								>
+									Create Game
+								</button>
+							</>
+						) : (
+							<>
+								<div className="form-field">
+									<label htmlFor="joinCode">Game code</label>
+									<input
+										id="joinCode"
+										type="text"
+										inputMode="text"
+										placeholder="ABC123"
+										value={joinCodeInput}
+										onChange={(e) =>
+											setJoinCodeInput(e.target.value.toUpperCase())
+										}
+										maxLength={8}
+										autoCapitalize="characters"
+										autoComplete="off"
+										onKeyDown={(e) => {
+											if (e.key === 'Enter' && canJoinByCode) {
+												setGameId(codeNormalized);
+												setView('join');
+											}
+										}}
+									/>
+								</div>
+								<button
+									className="primary-button"
+									onClick={() => {
+										setGameId(codeNormalized);
+										setView('join');
+									}}
+									disabled={!canJoinByCode}
+								>
+									Continue
+								</button>
+							</>
+						)}
 					</div>
 				</div>
+				{shareToast && <div className="toast">{shareToast}</div>}
 			</div>
 		);
 	} else if (view === 'join') {
 		return (
-			<div className="App">
-				<h1>Join Game</h1>
-				<div className="game-setup-form">
-					<div className="form-field">
-						<label>Game ID:</label>
-						<p
-							style={{
-								color: '#fff',
-								fontSize: '18px',
-								fontWeight: 'bold',
-								margin: '5px 0 15px',
-							}}
+			<div className="App join-view">
+				<div className="card-shell">
+					<h1 className="brand-title">Join Game</h1>
+					<p className="join-code-display">{gameId}</p>
+					<div className="form-stack">
+						<div className="form-field">
+							<label htmlFor="joinDisplayName">Your name</label>
+							<input
+								id="joinDisplayName"
+								type="text"
+								placeholder="e.g. Alex"
+								value={displayName}
+								onChange={(e) => setDisplayName(e.target.value)}
+								onKeyDown={(e) => {
+									if (e.key === 'Enter' && displayName && gameId) {
+										joinGame();
+									}
+								}}
+								autoComplete="off"
+							/>
+						</div>
+						<button
+							className="primary-button"
+							onClick={joinGame}
+							disabled={!displayName.trim()}
 						>
-							{gameId}
-						</p>
-					</div>
-					<div className="form-field">
-						<label htmlFor="joinDisplayName">Your Name:</label>
-						<input
-							id="joinDisplayName"
-							type="text"
-							placeholder="Enter your name"
-							value={displayName}
-							onChange={(e) => setDisplayName(e.target.value)}
-							onKeyDown={(e) => {
-								if (e.key === 'Enter' && displayName && gameId) {
-									joinGame();
-								}
-							}}
-						/>
-					</div>
-					<div className="button-group">
-						<button onClick={joinGame}>Join Game</button>
+							Join Game
+						</button>
+						<button className="link-button" onClick={goHome}>
+							← Back
+						</button>
 					</div>
 				</div>
+				{shareToast && <div className="toast">{shareToast}</div>}
 			</div>
 		);
 	} else if (view === 'lobby') {
+		const shareUrl = window.location.origin + '/' + gameId;
+		const isHost =
+			gameState && gameState.players.length > 0 && gameState.players[0].id === playerId;
 		return (
-			<div className="App">
-				<h1>Game Lobby</h1>
-				<button
-					onClick={goHome}
-					style={{
-						position: 'absolute',
-						top: '20px',
-						right: '20px',
-						padding: '8px 16px',
-						backgroundColor: '#666',
-						color: '#fff',
-						border: 'none',
-						borderRadius: '4px',
-						cursor: 'pointer',
-						fontSize: '14px',
-					}}
-				>
+			<div className="App lobby-view">
+				<button className="top-right-button" onClick={goHome}>
 					New Game
 				</button>
-				<div className="lobby-container">
+				<div className="card-shell lobby-shell">
+					<h1 className="brand-title">Game Lobby</h1>
+					<div className="game-code-row">
+						<span className="game-code-label">Code</span>
+						<span className="game-code-value">{gameId}</span>
+					</div>
 					<div className="share-link-section">
-						<p
-							style={{ color: '#fff', marginBottom: '10px', fontSize: '14px' }}
-						>
-							Share this link with friends:
-						</p>
-						<div
-							style={{
-								display: 'flex',
-								alignItems: 'center',
-								gap: '8px',
-							}}
-						>
-							<div className="share-link-box">
-								{window.location.origin + '/' + gameId}
+						<div className="share-link-row">
+							<div className="share-link-box" title="Share this link with friends">
+								{shareUrl}
 							</div>
-							<button
-								onClick={() =>
-									copyToClipboard(window.location.origin + '/' + gameId)
-								}
-								style={{
-									padding: '8px 12px',
-									backgroundColor: '#4CAF50',
-									color: '#fff',
-									border: 'none',
-									borderRadius: '4px',
-									cursor: 'pointer',
-									fontSize: '14px',
-									whiteSpace: 'nowrap',
-								}}
-								title="Copy link to clipboard"
-							>
-								📋 Copy
-							</button>
+							<div className="share-link-buttons">
+								<button
+									className="share-button copy"
+									onClick={() => copyToClipboard(shareUrl)}
+									title="Copy link"
+									aria-label="Copy link"
+								>
+									Copy
+								</button>
+								{canShare && (
+									<button
+										className="share-button share"
+										onClick={() => shareLink(shareUrl)}
+										title="Share link"
+										aria-label="Share link"
+									>
+										Share
+									</button>
+								)}
+							</div>
 						</div>
 					</div>
 					<div className="lobby-players-section">
-						<h3>Players in Lobby ({gameState?.players.length || 0})</h3>
+						<h3>Players ({gameState?.players.length || 0})</h3>
 						<div className="lobby-players-list">
 							{gameState &&
 								gameState.players.map((p, index) => (
 									<div key={p.id} className="lobby-player-item">
 										<span className="player-number">{index + 1}</span>
-										<span className="player-name">{p.displayName}</span>
+										<span className="player-name">
+											{p.displayName}
+											{p.id === playerId && (
+												<span className="you-tag"> (you)</span>
+											)}
+										</span>
 									</div>
 								))}
 						</div>
 					</div>
-					<div className="button-group">
-						{gameState &&
-							gameState.players.length > 0 &&
-							gameState.players[0].id === playerId && (
-								<button onClick={startGame} className="start-game-button">
-									Start Game
-								</button>
-							)}
-					</div>
-					{gameState &&
-					gameState.players.length > 0 &&
-					gameState.players[0].id === playerId ? (
-						<p className="waiting-message">Click Start Game when ready</p>
+					{isHost ? (
+						<button
+							onClick={startGame}
+							className="primary-button start-game-button"
+							disabled={!gameState || gameState.players.length < 2}
+						>
+							Start Game
+						</button>
 					) : (
-						<p className="waiting-message">Waiting for host to start game...</p>
+						<p className="waiting-message">Waiting for host to start the game…</p>
 					)}
 				</div>
+				{shareToast && <div className="toast">{shareToast}</div>}
 			</div>
 		);
 	} else if (view === 'game') {
+		const numPlayers = gameState ? gameState.players.length : 0;
+		const useModalScoreboard = numPlayers >= 5 || isMobile;
+		const myMoneyLost =
+			gameState && (gameState.moneyPerMiss || 0) > 0
+				? moneyLostForPlayer(gameState, playerId)
+				: 0;
+		const showMoneyTracker =
+			gameState &&
+			(gameState.moneyPerMiss || 0) > 0 &&
+			gameState.state !== 'finished';
 		return (
 			<div className="App">
-				{gameState && gameState.players.length < 5 && (
+				{gameState && !useModalScoreboard && (
 					<div className="scoreboard-container">
 						<Scoreboard gameState={gameState} />
 					</div>
 				)}
-				{gameState && gameState.players.length >= 5 && (
+				{gameState && useModalScoreboard && (
 					<>
 						<button
 							className="scoreboard-toggle-button"
@@ -1223,13 +1469,25 @@ function App() {
 						)}
 					</>
 				)}
+				{showMoneyTracker && (
+					<div
+						className="money-tracker"
+						title="Money lost this game"
+					>
+						<span className="money-tracker-label">$ Lost</span>
+						<span className="money-tracker-value">
+							${myMoneyLost.toFixed(2)}
+						</span>
+					</div>
+				)}
 				<div
 					className={`main-content ${
-						gameState && gameState.players.length >= 5 ? 'full-width' : ''
+						useModalScoreboard ? 'full-width' : ''
 					}`}
 				>
 					{renderGameBoard()}
 				</div>
+				{shareToast && <div className="toast">{shareToast}</div>}
 			</div>
 		);
 	}

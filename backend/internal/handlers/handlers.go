@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"math"
 	"math/rand"
 	"net/http"
@@ -12,6 +13,18 @@ import (
 	"github.com/etanetan/up-and-down-the-river/backend/internal/game"
 	"github.com/google/uuid"
 )
+
+// broadcastState marshals the current game state and publishes it to all SSE
+// subscribers. Callers may hold game.GamesMu when invoking this; channel sends
+// are non-blocking.
+func broadcastState(g *game.Game) {
+	payload, err := json.Marshal(g)
+	if err != nil {
+		log.Printf("broadcastState marshal: %v", err)
+		return
+	}
+	g.Publish(payload)
+}
 
 const letterBytes = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
@@ -28,8 +41,9 @@ func generateGameID() string {
 // CreateGameHandler creates a new game and adds the creator.
 func CreateGameHandler(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		DisplayName     string `json:"displayName"`
-		CreatorMaxCards int    `json:"creatorMaxCards"`
+		DisplayName     string  `json:"displayName"`
+		CreatorMaxCards int     `json:"creatorMaxCards"`
+		MoneyPerMiss    float64 `json:"moneyPerMiss"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -53,6 +67,7 @@ func CreateGameHandler(w http.ResponseWriter, r *http.Request) {
 		Players:         []*game.Player{creator},
 		State:           "lobby",
 		CreatorMaxCards: req.CreatorMaxCards,
+		MoneyPerMiss:    req.MoneyPerMiss,
 	}
 	game.Games[gameID] = newGame
 	resp := map[string]string{
@@ -100,6 +115,7 @@ func JoinGameHandler(w http.ResponseWriter, r *http.Request) {
 	game.GamesMu.Lock()
 	g.Players = append(g.Players, newPlayer)
 	game.GamesMu.Unlock()
+	broadcastState(g)
 	resp := map[string]string{
 		"gameId":   req.GameID,
 		"playerId": newPlayer.ID,
@@ -174,6 +190,7 @@ func StartGameHandler(w http.ResponseWriter, r *http.Request) {
 	biddingOrder = append(biddingOrder, g.Players[dealerIndex].ID)
 	round.BidOrder = biddingOrder
 	round.CurrentBidTurn = 0
+	broadcastState(g)
 	resp := map[string]interface{}{
 		"message":       "Game started; bidding phase begins",
 		"gameId":        g.ID,
@@ -273,6 +290,7 @@ func BidHandler(w http.ResponseWriter, r *http.Request) {
 		round.TrickTurnIndex = 0
 		round.TrickLeader = leaderIndex
 	}
+	broadcastState(g)
 	resp := map[string]interface{}{
 		"message": "Bid accepted",
 		"bids":    round.Bids,
@@ -381,6 +399,8 @@ func PlayHandler(w http.ResponseWriter, r *http.Request) {
 
 		round.Tricks = append(round.Tricks, *round.CurrentTrick)
 
+		broadcastState(g)
+
 		// Immediately send the response with the trick-over message.
 		resp := map[string]interface{}{
 			"message":          "Card played",
@@ -398,7 +418,10 @@ func PlayHandler(w http.ResponseWriter, r *http.Request) {
 			time.Sleep(2000 * time.Millisecond) // Wait 2 seconds for the UI to display the winning message
 
 			game.GamesMu.Lock()
-			defer game.GamesMu.Unlock()
+			defer func() {
+				game.GamesMu.Unlock()
+				broadcastState(g)
+			}()
 
 			// Clear the trick-over message as we transition.
 			g.TrickOverMessage = ""
@@ -498,6 +521,7 @@ func PlayHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Normal case: trick is not yet complete.
+	broadcastState(g)
 	resp := map[string]interface{}{
 		"message":      "Card played",
 		"currentTrick": round.CurrentTrick,
@@ -610,6 +634,66 @@ func ResetGameHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	broadcastState(g)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(g)
+}
+
+// EventsHandler streams game-state updates to a client over Server-Sent Events.
+// One connection per client; broadcasts originate from mutation handlers via
+// broadcastState. A keepalive comment is sent every 20s to defeat idle-proxy
+// disconnects.
+func EventsHandler(w http.ResponseWriter, r *http.Request) {
+	gameID := r.URL.Query().Get("gameId")
+	if gameID == "" {
+		http.Error(w, "gameId required", http.StatusBadRequest)
+		return
+	}
+
+	game.GamesMu.Lock()
+	g, ok := game.Games[gameID]
+	game.GamesMu.Unlock()
+	if !ok {
+		http.Error(w, "game not found", http.StatusNotFound)
+		return
+	}
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	ch := g.Subscribe()
+	defer g.Unsubscribe(ch)
+
+	if payload, err := json.Marshal(g); err == nil {
+		fmt.Fprintf(w, "data: %s\n\n", payload)
+		flusher.Flush()
+	}
+
+	ctx := r.Context()
+	keepalive := time.NewTicker(20 * time.Second)
+	defer keepalive.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case payload, ok := <-ch:
+			if !ok {
+				return
+			}
+			fmt.Fprintf(w, "data: %s\n\n", payload)
+			flusher.Flush()
+		case <-keepalive.C:
+			fmt.Fprintf(w, ": ping\n\n")
+			flusher.Flush()
+		}
+	}
 }
