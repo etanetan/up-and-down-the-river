@@ -1,84 +1,161 @@
-/* Style for the bid modal */
+/* Container for the bidding modal - compact design */
 .bid-modal {
-	display: flex;
-	flex-direction: column;
-	align-items: center;
-	/* Fixed positioning so the modal is always on the right side above the hand */
 	position: fixed;
-	bottom: 160px; /* For desktop view – sits above the hand container */
-	right: 10px; /* Fixed at the right edge */
-	padding: 10px;
-	border: 2px solid #006400;
-	border-radius: 8px;
-	background-color: #006400;
-	width: 80px;
-	text-align: center;
-	box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.2);
-	z-index: 10;
+	bottom: 160px;
+	right: 30px;
+	display: flex;
+	flex-direction: row;
+	align-items: center;
+	gap: 8px;
+	padding: 10px 12px;
+	background: rgba(255, 255, 255, 0.97);
+	border-radius: 10px;
+	box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+	z-index: 200;
+	transition: all 0.2s ease;
+	max-width: min(420px, calc(100vw - 24px));
 }
 
-/* Styling for up/down arrow buttons */
+.bid-modal.disabled {
+	opacity: 0.5;
+	pointer-events: none;
+}
+
+/* Header styling for the bid modal */
+.bid-header {
+	display: none;
+}
+
+/* Styling for the up and down arrow buttons */
 .arrow-button {
-	font-size: 1.4em;
-	background: none;
-	border: none;
-	cursor: pointer;
-	color: white;
-	margin: 3px 0;
-	font-weight: bold;
-	width: 100%;
-}
-
-/* Style for the number display */
-.bid-number {
-	font-size: 1.5em;
-	font-weight: bold;
-	margin: 5px 0;
-	background: white;
-	padding: 5px;
-	width: 50px;
-	border-radius: 4px;
-	border: 2px solid #2a4d2e;
-	text-align: center;
-	color: black;
-}
-
-/* Styling for the place bid button */
-.place-bid-button {
-	margin-top: 5px;
-	padding: 6px;
 	font-size: 1em;
+	background: #f0f0f0;
+	border: 1px solid #ccc;
 	cursor: pointer;
-	background-color: #2a4d2e;
-	border: none;
-	border-radius: 5px;
-	color: white;
-	width: 100%;
-	font-weight: bold;
+	margin: 0;
+	width: 28px;
+	height: 28px;
+	border-radius: 4px;
+	transition: all 0.2s ease;
+	color: #333;
 }
 
-/* Mobile-specific adjustments for the bid modal */
+.arrow-button:hover:not(:disabled) {
+	background: #e0e0e0;
+	border-color: #999;
+}
+
+.arrow-button:active:not(:disabled) {
+	transform: scale(0.95);
+}
+
+.arrow-button:disabled {
+	opacity: 0.3;
+	cursor: not-allowed;
+}
+
+/* Styling for the numeric bid input field */
+.bid-input {
+	width: 45px;
+	text-align: center;
+	font-size: 1.1em;
+	font-weight: 700;
+	margin: 0;
+	padding: 4px;
+	border: 1px solid #ddd;
+	border-radius: 4px;
+	background: white;
+	color: #333;
+	transition: all 0.2s ease;
+}
+
+.bid-input:focus {
+	outline: none;
+	border-color: #3498db;
+}
+
+.bid-input:disabled {
+	background: #f5f5f5;
+	cursor: not-allowed;
+}
+
+/* Styling for the Place Bid button */
+.place-bid-button {
+	margin: 0;
+	padding: 6px 12px;
+	font-size: 0.85em;
+	font-weight: 600;
+	cursor: pointer;
+	background: #3498db;
+	border: none;
+	border-radius: 4px;
+	color: #fff;
+	transition: all 0.2s ease;
+	white-space: nowrap;
+}
+
+.place-bid-button:hover:not(:disabled) {
+	background: #2980b9;
+}
+
+.place-bid-button:active:not(:disabled) {
+	transform: scale(0.98);
+}
+
+.place-bid-button:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+	background: #95a5a6;
+}
+
+/* Turn indicator */
+.bid-turn-indicator {
+	position: absolute;
+	top: -10px;
+	right: -10px;
+	background: #2ecc71;
+	color: white;
+	font-size: 0.65em;
+	font-weight: 700;
+	padding: 4px 8px;
+	border-radius: 12px;
+	box-shadow: 0 2px 6px rgba(46, 204, 113, 0.4);
+	animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+	0%, 100% {
+		transform: scale(1);
+		opacity: 1;
+	}
+	50% {
+		transform: scale(1.05);
+		opacity: 0.9;
+	}
+}
+
 @media (max-width: 768px) {
 	.bid-modal {
-		/* width: 50px;*/
-		padding: 8px;
-		/* Adjust bottom offset so it sits right above the smaller hand container */
-		bottom: 50px;
-		right: 10px;
-		position: fixed;
+		bottom: 150px;
+		right: 12px;
+		left: 12px;
+		justify-content: center;
+		padding: 10px;
+		gap: 10px;
 	}
 	.arrow-button {
-		font-size: 1.2em;
-		margin: 2px 0;
+		width: 40px;
+		height: 40px;
+		font-size: 1.1em;
 	}
-	.bid-number {
-		font-size: 1.2em;
-		margin: 3px 0;
-		/*width: 60px;*/
-		padding: 4px;
+	.bid-input {
+		width: 60px;
+		font-size: 1.3em;
+		padding: 8px;
 	}
 	.place-bid-button {
-		padding: 4px;
-		font-size: 0.9em;
+		min-height: 40px;
+		padding: 8px 14px;
+		font-size: 1em;
 	}
 }

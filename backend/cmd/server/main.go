@@ -30,6 +30,7 @@ func main() {
     http.HandleFunc("/games/bid", withCORS(handlers.BidHandler))
     http.HandleFunc("/games/play", withCORS(handlers.PlayHandler))
     http.HandleFunc("/games/state", withCORS(handlers.GetGameStateHandler))
+    http.HandleFunc("/games/events", withCORS(handlers.EventsHandler))
 		http.HandleFunc("/games/reset", withCORS(handlers.ResetGameHandler))
 
     log.Println("Server started on :8080")

@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"math"
 	"math/rand"
 	"net/http"
@@ -12,6 +13,18 @@ import (
 	"github.com/etanetan/up-and-down-the-river/backend/internal/game"
 	"github.com/google/uuid"
 )
+
+// broadcastState marshals the current game state and publishes it to all SSE
+// subscribers. Callers may hold game.GamesMu when invoking this; channel sends
+// are non-blocking.
+func broadcastState(g *game.Game) {
+	payload, err := json.Marshal(g)
+	if err != nil {
+		log.Printf("broadcastState marshal: %v", err)
+		return
+	}
+	g.Publish(payload)
+}
 
 const letterBytes = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
@@ -28,8 +41,9 @@ func generateGameID() string {
 // CreateGameHandler creates a new game and adds the creator.
 func CreateGameHandler(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		DisplayName     string `json:"displayName"`
-		CreatorMaxCards int    `json:"creatorMaxCards"`
+		DisplayName     string  `json:"displayName"`
+		CreatorMaxCards int     `json:"creatorMaxCards"`
+		MoneyPerMiss    float64 `json:"moneyPerMiss"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -39,6 +53,7 @@ func CreateGameHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "displayName is required", http.StatusBadRequest)
 		return
 	}
+	//gameID := uuid.New().String()
 	gameID := generateGameID()
 
 	creator := &game.Player{
@@ -52,6 +67,7 @@ func CreateGameHandler(w http.ResponseWriter, r *http.Request) {
 		Players:         []*game.Player{creator},
 		State:           "lobby",
 		CreatorMaxCards: req.CreatorMaxCards,
+		MoneyPerMiss:    req.MoneyPerMiss,
 	}
 	game.Games[gameID] = newGame
 	resp := map[string]string{
@@ -99,6 +115,7 @@ func JoinGameHandler(w http.ResponseWriter, r *http.Request) {
 	game.GamesMu.Lock()
 	g.Players = append(g.Players, newPlayer)
 	game.GamesMu.Unlock()
+	broadcastState(g)
 	resp := map[string]string{
 		"gameId":   req.GameID,
 		"playerId": newPlayer.ID,
@@ -173,6 +190,7 @@ func StartGameHandler(w http.ResponseWriter, r *http.Request) {
 	biddingOrder = append(biddingOrder, g.Players[dealerIndex].ID)
 	round.BidOrder = biddingOrder
 	round.CurrentBidTurn = 0
+	broadcastState(g)
 	resp := map[string]interface{}{
 		"message":       "Game started; bidding phase begins",
 		"gameId":        g.ID,
@@ -272,6 +290,7 @@ func BidHandler(w http.ResponseWriter, r *http.Request) {
 		round.TrickTurnIndex = 0
 		round.TrickLeader = leaderIndex
 	}
+	broadcastState(g)
 	resp := map[string]interface{}{
 		"message": "Bid accepted",
 		"bids":    round.Bids,
@@ -335,17 +354,13 @@ func PlayHandler(w http.ResponseWriter, r *http.Request) {
 		leadSuit := strings.ToLower(leadCard.Suit)
 		hasLeadSuit := false
 		for _, c := range player.Hand {
-			// A non-joker card is defined as having Rank <= Ace (14).
-			if c.Rank <= 14 && strings.ToLower(c.Suit) == leadSuit {
+			if !c.IsJoker && strings.ToLower(c.Suit) == leadSuit {
 				hasLeadSuit = true
 				break
 			}
 		}
 		if hasLeadSuit {
-			// If the player holds a non-joker card of the lead suit,
-			// they must follow suit (i.e. play a card with suit matching the lead).
-			// Also, playing a joker (Rank > 14) is not allowed if they can follow suit.
-			if req.Card.Rank > 14 || strings.ToLower(req.Card.Suit) != leadSuit {
+			if req.Card.IsJoker || strings.ToLower(req.Card.Suit) != leadSuit {
 				http.Error(w, "you must follow suit", http.StatusBadRequest)
 				return
 			}
@@ -359,7 +374,11 @@ func PlayHandler(w http.ResponseWriter, r *http.Request) {
 	round.CurrentTrick.Plays = append(round.CurrentTrick.Plays, play)
 	round.TrickTurnIndex++
 
+	// Check if the trick is complete.
 	if len(round.CurrentTrick.Plays) == len(g.Players) {
+
+		//time.Sleep(500 * time.Millisecond)
+
 		leadSuit := strings.ToLower(round.CurrentTrick.Plays[0].Card.Suit)
 		winningPlay := round.CurrentTrick.Plays[0]
 		for _, p := range round.CurrentTrick.Plays[1:] {
@@ -375,10 +394,14 @@ func PlayHandler(w http.ResponseWriter, r *http.Request) {
 			winningMessage = fmt.Sprintf("%s won the trick!", winner.DisplayName)
 		}
 
+		// Persist the trick-over message in the game state.
 		g.TrickOverMessage = winningMessage
 
 		round.Tricks = append(round.Tricks, *round.CurrentTrick)
 
+		broadcastState(g)
+
+		// Immediately send the response with the trick-over message.
 		resp := map[string]interface{}{
 			"message":          "Card played",
 			"currentTrick":     round.CurrentTrick,
@@ -390,13 +413,20 @@ func PlayHandler(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(resp)
 
+		// After 2 seconds, update the game state to transition to bidding.
 		go func() {
-			time.Sleep(2000 * time.Millisecond)
-			game.GamesMu.Lock()
-			defer game.GamesMu.Unlock()
+			time.Sleep(2000 * time.Millisecond) // Wait 2 seconds for the UI to display the winning message
 
+			game.GamesMu.Lock()
+			defer func() {
+				game.GamesMu.Unlock()
+				broadcastState(g)
+			}()
+
+			// Clear the trick-over message as we transition.
 			g.TrickOverMessage = ""
 
+			// If players still have cards, prepare the next trick.
 			if len(g.Players[0].Hand) > 0 {
 				var winnerIndex int
 				for i, p := range g.Players {
@@ -411,7 +441,9 @@ func PlayHandler(w http.ResponseWriter, r *http.Request) {
 					Plays:    []game.Play{},
 				}
 				round.TrickTurnIndex = 0
+				// The state remains "playing" until the trick is fully reset.
 			} else {
+				// End of round. Record round results.
 				var roundResults []game.PlayerRoundResult
 				for _, p := range g.Players {
 					bid := round.Bids[p.ID]
@@ -435,6 +467,7 @@ func PlayHandler(w http.ResponseWriter, r *http.Request) {
 				}
 				g.RoundResults = append(g.RoundResults, newRoundResult)
 
+				// Setup next round if available.
 				g.CurrentRoundIndex++
 				if g.CurrentRoundIndex < len(g.RoundSequence) {
 					newDealerIndex := (round.DealerIndex + 1) % len(g.Players)
@@ -487,6 +520,8 @@ func PlayHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Normal case: trick is not yet complete.
+	broadcastState(g)
 	resp := map[string]interface{}{
 		"message":      "Card played",
 		"currentTrick": round.CurrentTrick,
@@ -537,6 +572,7 @@ func ResetGameHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Clear the scoreboard and reset player state.
 	g.RoundResults = []game.RoundResult{}
 	g.CurrentRoundIndex = 0
 	for _, p := range g.Players {
@@ -547,27 +583,38 @@ func ResetGameHandler(w http.ResponseWriter, r *http.Request) {
 		p.MissedBids = 0
 	}
 
+	// Recompute the round sequence based on the creator's max cards.
+	// (Assumes you use the same logic as in StartGameHandler.)
 	maxPossible := int(math.Floor(54.0 / float64(len(g.Players))))
 	desired := g.CreatorMaxCards
 	if desired <= 0 || desired > maxPossible {
 		desired = maxPossible
 	}
 	g.RoundSequence = game.ComputeRoundSequence(desired)
+
+	// Set the game state to "bidding" for a new round.
 	g.State = "bidding"
+
+	// Choose a new dealer.
+	// You can either rotate the dealer or choose one at random.
+	// Here we'll rotate from the previous round if one exists, or choose randomly.
 	var dealerIndex int
 	if g.CurrentRound != nil {
 		dealerIndex = (g.CurrentRound.DealerIndex + 1) % len(g.Players)
 	} else {
 		dealerIndex = rand.Intn(len(g.Players))
 	}
+
+	// Create a new round using the first value in the round sequence.
 	newRound := &game.Round{
-		RoundNumber:    1,
+		RoundNumber:    1, // starting over with round number 1
 		TotalCards:     g.RoundSequence[0],
 		DealerIndex:    dealerIndex,
 		Bids:           make(map[string]int),
 		BidOrder:       []string{},
 		CurrentBidTurn: 0,
 	}
+	// Set bidding order: start with the player to the left of the dealer, then dealer last.
 	n := len(g.Players)
 	for i := 1; i < n; i++ {
 		index := (dealerIndex + i) % n
@@ -575,6 +622,8 @@ func ResetGameHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	newRound.BidOrder = append(newRound.BidOrder, g.Players[dealerIndex].ID)
 	g.CurrentRound = newRound
+
+	// Create a new deck, shuffle it, and deal cards.
 	deck := game.CreateDeck()
 	game.ShuffleDeck(deck)
 	for _, p := range g.Players {
@@ -584,6 +633,67 @@ func ResetGameHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "error dealing cards: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	broadcastState(g)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(g)
+}
+
+// EventsHandler streams game-state updates to a client over Server-Sent Events.
+// One connection per client; broadcasts originate from mutation handlers via
+// broadcastState. A keepalive comment is sent every 20s to defeat idle-proxy
+// disconnects.
+func EventsHandler(w http.ResponseWriter, r *http.Request) {
+	gameID := r.URL.Query().Get("gameId")
+	if gameID == "" {
+		http.Error(w, "gameId required", http.StatusBadRequest)
+		return
+	}
+
+	game.GamesMu.Lock()
+	g, ok := game.Games[gameID]
+	game.GamesMu.Unlock()
+	if !ok {
+		http.Error(w, "game not found", http.StatusNotFound)
+		return
+	}
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	ch := g.Subscribe()
+	defer g.Unsubscribe(ch)
+
+	if payload, err := json.Marshal(g); err == nil {
+		fmt.Fprintf(w, "data: %s\n\n", payload)
+		flusher.Flush()
+	}
+
+	ctx := r.Context()
+	keepalive := time.NewTicker(20 * time.Second)
+	defer keepalive.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case payload, ok := <-ch:
+			if !ok {
+				return
+			}
+			fmt.Fprintf(w, "data: %s\n\n", payload)
+			flusher.Flush()
+		case <-keepalive.C:
+			fmt.Fprintf(w, ": ping\n\n")
+			flusher.Flush()
+		}
+	}
 }
